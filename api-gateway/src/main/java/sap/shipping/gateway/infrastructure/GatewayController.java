@@ -36,6 +36,7 @@ public class GatewayController {
     static Logger logger = Logger.getLogger("[API Gateway Controller]");
 
     private static final String API = "/api/v1";
+    private static final String HEALTH_PATH = "/health";
 
     private final OrderServicePort orderService;
     private final DeliveryServicePort deliveryService;
@@ -57,7 +58,15 @@ public class GatewayController {
         var router = Router.router(vertx);
         if (metrics != null) {
             router.route().handler(ctx -> {
-                metrics.incRequest();
+                /* the health endpoint is polled by the platform, not by clients:
+                   counting it would inflate the service level indicators */
+                if (HEALTH_PATH.equals(ctx.request().path())) {
+                    ctx.next();
+                    return;
+                }
+                var startedAt = System.nanoTime();
+                ctx.addBodyEndHandler(v ->
+                    metrics.observeRequest(ctx.response().getStatusCode(), System.nanoTime() - startedAt));
                 ctx.next();
             });
         }
