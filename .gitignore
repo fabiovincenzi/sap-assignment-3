@@ -1,0 +1,27 @@
+build/
+.gradle/
+bin/
+
+# LaTeX
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.fls
+report/*.fdb_latexmk
+report/*.synctex.gz
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# working notes (kept locally, not part of the deliverable)
+doc/*-notes.md
+doc/diagrams/
