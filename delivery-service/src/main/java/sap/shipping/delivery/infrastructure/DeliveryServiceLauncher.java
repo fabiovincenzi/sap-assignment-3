@@ -32,7 +32,9 @@ public class DeliveryServiceLauncher extends AbstractVerticle {
     @Override
     public void start() {
         logger.log(Level.INFO, "Delivery Service initializing...");
-        var repo = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(), new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView());
+        var publisher = new KafkaDeliveryEventPublisher(vertx, EV_CHANNELS_LOCATION);
+        var repo = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(),
+            new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView(), publisher);
         var droneProxy = new DroneServiceProxy(DRONE_HOST, DRONE_PORT);
         var orderProxy = new OrderServiceProxy(ORDER_HOST, ORDER_PORT);
 
