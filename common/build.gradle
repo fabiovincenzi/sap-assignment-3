@@ -1,1 +1,9 @@
-// Common module: DDD and Hexagonal marker interfaces
+// Common module: DDD and Hexagonal marker interfaces, plus the Kafka event channels
+
+apply plugin: 'java-library'
+
+dependencies {
+    /* api, not implementation: the services build their channels on these types */
+    api 'io.vertx:vertx-core:4.5.7'
+    api 'io.vertx:vertx-kafka-client:4.5.7'
+}
