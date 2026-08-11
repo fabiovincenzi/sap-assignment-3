@@ -21,6 +21,8 @@ public class DeliveryServiceLauncher extends AbstractVerticle {
     private static final int DRONE_PORT = Integer.parseInt(env("DRONE_PORT", "8092"));
     private static final String ORDER_HOST = env("ORDER_HOST", "localhost");
     private static final int ORDER_PORT = Integer.parseInt(env("ORDER_PORT", "8090"));
+    /* the host listener of the broker, overridden with the internal one inside compose */
+    private static final String EV_CHANNELS_LOCATION = env("EV_CHANNELS_LOCATION", "localhost:29092");
 
     private static String env(String name, String defaultValue) {
         var value = System.getenv(name);
@@ -43,6 +45,8 @@ public class DeliveryServiceLauncher extends AbstractVerticle {
         } catch (ObsMetricServerException e) {
             logger.log(Level.SEVERE, "Failed to start Prometheus metrics server - " + e.getMessage());
         }
+
+        vertx.deployVerticle(new DeliveryServiceEventBasedController(service, EV_CHANNELS_LOCATION));
 
         vertx.createHttpServer()
             .requestHandler(controller.createRouter(vertx))
