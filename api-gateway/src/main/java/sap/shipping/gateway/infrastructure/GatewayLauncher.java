@@ -25,6 +25,8 @@ public class GatewayLauncher extends AbstractVerticle {
     private static final int DELIVERY_PORT = Integer.parseInt(env("DELIVERY_PORT", "8091"));
     private static final String DRONE_HOST = env("DRONE_HOST", "localhost");
     private static final int DRONE_PORT = Integer.parseInt(env("DRONE_PORT", "8092"));
+    /* the host listener of the broker, overridden with the internal one inside compose */
+    private static final String EV_CHANNELS_LOCATION = env("EV_CHANNELS_LOCATION", "localhost:29092");
 
     private static String env(String name, String defaultValue) {
         var value = System.getenv(name);
@@ -34,9 +36,14 @@ public class GatewayLauncher extends AbstractVerticle {
     @Override
     public void start() {
         logger.log(Level.INFO, "API Gateway initializing...");
+        /* order and drone keep their REST architecture: only the delivery service was redesigned */
         var orderProxy = new OrderServiceProxy(ORDER_HOST, ORDER_PORT);
-        var deliveryProxy = new DeliveryServiceProxy(DELIVERY_HOST, DELIVERY_PORT);
         var droneProxy = new DroneServiceProxy(DRONE_HOST, DRONE_PORT);
+
+        var deliveryProxy = new DeliveryServiceEventBasedProxy(vertx, EV_CHANNELS_LOCATION);
+        deliveryProxy.start()
+            .onSuccess(v -> logger.log(Level.INFO, "Delivery event channels ready"))
+            .onFailure(err -> logger.log(Level.SEVERE, "Delivery event channels unavailable - " + err.getMessage()));
 
         GatewayMetrics metrics = null;
         try {
