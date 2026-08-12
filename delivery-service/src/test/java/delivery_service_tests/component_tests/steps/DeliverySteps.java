@@ -45,18 +45,9 @@ public class DeliverySteps {
         var repository = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(),
             new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView());
 
-        /* the neighbouring services are stubbed: the subject here is the delivery service alone */
-        DroneServicePort dronePort = new DroneServicePort() {
-            @Override
-            public Optional<String> requestAvailableDrone(double lat, double lng, double weightKg) {
-                return Optional.of("drone-1");
-            }
-            @Override
-            public void releaseDrone(String droneId) {}
-        };
-        OrderServicePort orderPort = orderId -> {};
-
-        var service = new DeliveryServiceImpl(repository, dronePort, orderPort);
+        /* no stub of the neighbouring services is needed any more: the delivery service does
+           not call anyone, it announces facts */
+        var service = new DeliveryServiceImpl(repository);
         var controller = new DeliveryController(service);
 
         vertx.createHttpServer()
@@ -86,24 +77,9 @@ public class DeliverySteps {
         assertThat(currentDelivery.getString("status")).isEqualTo(status);
     }
 
-    @Given("a delivery in transit for order {string}")
-    public void delivery_in_transit(String orderId) throws Exception {
-        schedule_delivery(orderId, 44.0, 12.0, 44.1, 12.1, 2.0);
-        currentDelivery = new JsonObject(post(deliveryUrl("start"), null).body());
-    }
-
-    @When("the delivery is completed")
-    public void the_delivery_is_completed() throws Exception {
-        currentDelivery = new JsonObject(post(deliveryUrl("complete"), null).body());
-    }
-
-    @Then("the delivery status is {string}")
-    public void delivery_status_is(String status) {
-        assertThat(currentDelivery.getString("status")).isEqualTo(status);
-    }
-
-    private String deliveryUrl(String action) {
-        return DELIVERIES_ENDPOINT + "/" + currentDelivery.getString("id") + "/" + action;
+    @Then("the delivery has no drone assigned")
+    public void delivery_has_no_drone() {
+        assertThat(currentDelivery.getString("droneId")).isNull();
     }
 
     private HttpResponse<String> post(String url, JsonObject body) throws Exception {

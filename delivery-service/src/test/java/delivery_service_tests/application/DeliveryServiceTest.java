@@ -2,28 +2,32 @@ package delivery_service_tests.application;
 
 import org.junit.jupiter.api.Test;
 import sap.shipping.delivery.application.*;
+import sap.shipping.delivery.domain.*;
 import sap.shipping.delivery.infrastructure.*;
-import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
 public class DeliveryServiceTest {
+
+    /**
+     * The service no longer calls anyone: the drone arrives as an answer to the announced
+     * delivery, so it is handed in from outside instead of being fetched.
+     */
     @Test
-    public void completionStillNotifiesOrderAndReleasesDrone() {
-        List<String> notified = new ArrayList<>();
-        List<String> released = new ArrayList<>();
-        var repo = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(), new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView());
-        DroneServicePort drone = new DroneServicePort() {
-            public Optional<String> requestAvailableDrone(double a, double b, double c) { return Optional.of("drone-1"); }
-            public void releaseDrone(String id) { released.add(id); }
-        };
-        OrderServicePort order = notified::add;
-        var service = new DeliveryServiceImpl(repo, drone, order);
+    public void aDeliveryIsBornWithoutADroneAndReachesItThroughAssignment() {
+        var repo = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(),
+            new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView());
+        var service = new DeliveryServiceImpl(repo);
 
-        var d = service.scheduleDelivery("order-9", 44.0, 12.0, 44.1, 12.1, 2.0);
-        service.startDelivery(d.getId());
-        service.completeDelivery(d.getId());
+        var scheduled = service.scheduleDelivery("order-9", 44.0, 12.0, 44.1, 12.1, 2.0);
+        assertThat(scheduled.status()).isEqualTo(DeliveryStatus.SCHEDULED);
+        assertThat(scheduled.droneId()).isNull();
 
-        assertThat(notified).containsExactly("order-9");
-        assertThat(released).containsExactly("drone-1");
+        var assigned = service.assignDrone(scheduled.getId(), "drone-1");
+        assertThat(assigned.status()).isEqualTo(DeliveryStatus.DRONE_ASSIGNED);
+        assertThat(assigned.droneId()).isEqualTo("drone-1");
+
+        service.startDelivery(scheduled.getId());
+        var completed = service.completeDelivery(scheduled.getId());
+        assertThat(completed.status()).isEqualTo(DeliveryStatus.DELIVERED);
     }
 }

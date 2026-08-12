@@ -35,10 +35,7 @@ public class DeliveryServiceLauncher extends AbstractVerticle {
         var publisher = new KafkaDeliveryEventPublisher(vertx, EV_CHANNELS_LOCATION);
         var repo = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(),
             new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView(), publisher);
-        var droneProxy = new DroneServiceProxy(DRONE_HOST, DRONE_PORT);
-        var orderProxy = new OrderServiceProxy(ORDER_HOST, ORDER_PORT);
-
-        var service = new DeliveryServiceImpl(repo, droneProxy, orderProxy);
+        var service = new DeliveryServiceImpl(repo);
         var controller = new DeliveryController(service);
 
         try {

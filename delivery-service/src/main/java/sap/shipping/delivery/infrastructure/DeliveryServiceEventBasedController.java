@@ -15,11 +15,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Event-based controller of the delivery service: the same application service the REST
- * controller drives, reached through event channels instead of HTTP routes.
+ * Inbound adapter of the delivery service, over event channels.
  *
- * A request channel carries the command, the approved and rejected channels carry what an
- * HTTP status code would carry, and the requestId correlates a reply with its request.
+ * Each operation has a request channel plus an approved and a rejected one, which carry what a
+ * status code would carry. The requestId ties a reply to its request.
  */
 @Adapter
 public class DeliveryServiceEventBasedController extends AbstractVerticle {
@@ -48,6 +47,11 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     static final String DRONE_POSITION_REPORTS_EVC = "drone-position-reports";
 
     static final String NEW_DELIVERY_CREATED_EVC = "new-delivery-created";
+    static final String DELIVERY_COMPLETED_EVC = "delivery-completed";
+
+    /* the fleet answers an announced delivery on one of these two */
+    static final String DRONE_ASSIGNED_EVC = "drone-assigned";
+    static final String DRONE_UNAVAILABLE_EVC = "drone-unavailable";
 
     static final String CONSUMER_GROUP = "delivery-service";
 
@@ -72,6 +76,10 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     private OutputEventChannel getDeliveryRequestsRejected;
 
     private InputEventChannel dronePositionReports;
+
+    private InputEventChannel droneAssigned;
+    private InputEventChannel droneUnavailable;
+    private OutputEventChannel deliveryCompleted;
 
     public DeliveryServiceEventBasedController(DeliveryService deliveryService, String evChannelsLocation) {
         this.deliveryService = deliveryService;
@@ -101,12 +109,18 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
 
         dronePositionReports = input(DRONE_POSITION_REPORTS_EVC);
 
+        droneAssigned = input(DRONE_ASSIGNED_EVC);
+        droneUnavailable = input(DRONE_UNAVAILABLE_EVC);
+        deliveryCompleted = output(DELIVERY_COMPLETED_EVC);
+
         Future.all(List.of(
                 createDeliveryRequests.init(this::scheduleDelivery),
                 startDeliveryRequests.init(this::startDelivery),
                 completeDeliveryRequests.init(this::completeDelivery),
                 getDeliveryRequests.init(this::getDelivery),
-                dronePositionReports.init(this::updateDronePosition)))
+                dronePositionReports.init(this::updateDronePosition),
+                droneAssigned.init(this::assignDrone),
+                droneUnavailable.init(this::noDroneAvailable)))
             .onSuccess(v -> logger.log(Level.INFO, "Delivery Service event channels ready"))
             .onFailure(err -> logger.log(Level.SEVERE, "Event channels unavailable - " + err.getMessage()));
     }
@@ -173,9 +187,33 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
         try {
             var delivery = deliveryService.completeDelivery(new DeliveryId(required(request, "deliveryId")));
             approve(completeDeliveryRequestsApproved, requestId, delivery);
+            deliveryCompleted.postEvent(delivery.getId().value(), new JsonObject()
+                .put("deliveryId", delivery.getId().value())
+                .put("orderId", delivery.orderId())
+                .put("droneId", delivery.droneId()));
         } catch (Exception e) {
             reject(completeDeliveryRequestsRejected, requestId, e.getMessage());
         }
+    }
+
+    /** The fleet answered the announced delivery with a drone. */
+    private void assignDrone(JsonObject answer) {
+        try {
+            var deliveryId = new DeliveryId(required(answer, "deliveryId"));
+            deliveryService.assignDrone(deliveryId, required(answer, "droneId"));
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "DroneAssigned discarded - " + e.getMessage());
+        }
+    }
+
+    /**
+     * The fleet answered that there is none. The delivery stays SCHEDULED, which is the
+     * degraded state the availability scenario describes: nothing is rejected, the delivery
+     * simply waits.
+     */
+    private void noDroneAvailable(JsonObject answer) {
+        logger.log(Level.WARNING, "No drone for delivery " + answer.getString("deliveryId")
+            + " - " + answer.getString("reason"));
     }
 
     private void getDelivery(JsonObject request) {
@@ -222,11 +260,17 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     }
 
     /**
-     * The fact, addressed to nobody in particular: whoever is interested subscribes, and the
-     * delivery service does not need to know who.
+     * Announces the delivery to whoever is subscribed. The payload carries weight and pickup
+     * point, which the replies do not: a consumer must be able to act without asking back.
      */
     private void announce(Delivery delivery) {
-        newDeliveryCreated.postEvent(delivery.getId().value(), deliveryToJson(delivery));
+        var fact = new JsonObject()
+            .put("deliveryId", delivery.getId().value())
+            .put("orderId", delivery.orderId())
+            .put("pickupLat", delivery.route().pickupLat())
+            .put("pickupLng", delivery.route().pickupLng())
+            .put("weightKg", delivery.weightKg());
+        newDeliveryCreated.postEvent(delivery.getId().value(), fact);
     }
 
     private JsonObject deliveryToJson(Delivery d) {

@@ -14,6 +14,9 @@ public interface DeliveryService {
     Delivery scheduleDelivery(String orderId, double pickupLat, double pickupLng,
                               double deliveryLat, double deliveryLng, double weightKg);
 
+    /** Assignment comes from outside now, as the answer to an announced delivery. */
+    Delivery assignDrone(DeliveryId deliveryId, String droneId);
+
     Delivery startDelivery(DeliveryId deliveryId);
 
     void updateDronePosition(String droneId, double lat, double lng);

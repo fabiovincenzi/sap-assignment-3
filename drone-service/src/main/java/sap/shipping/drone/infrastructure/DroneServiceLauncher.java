@@ -19,6 +19,8 @@ public class DroneServiceLauncher extends AbstractVerticle {
        the docker-compose file overrides them with the service container names. */
     private static final String DELIVERY_HOST = env("DELIVERY_HOST", "localhost");
     private static final int DELIVERY_PORT = Integer.parseInt(env("DELIVERY_PORT", "8091"));
+    /* the host listener of the broker, overridden with the internal one inside compose */
+    private static final String EV_CHANNELS_LOCATION = env("EV_CHANNELS_LOCATION", "localhost:29092");
 
     private static String env(String name, String defaultValue) {
         var value = System.getenv(name);
@@ -40,6 +42,8 @@ public class DroneServiceLauncher extends AbstractVerticle {
         } catch (ObsMetricServerException e) {
             logger.log(Level.SEVERE, "Failed to start Prometheus metrics server - " + e.getMessage());
         }
+
+        vertx.deployVerticle(new DroneServiceEventBasedController(service, EV_CHANNELS_LOCATION));
 
         vertx.createHttpServer()
             .requestHandler(controller.createRouter(vertx))

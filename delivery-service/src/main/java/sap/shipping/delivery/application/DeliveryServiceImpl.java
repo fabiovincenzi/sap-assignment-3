@@ -13,14 +13,10 @@ public class DeliveryServiceImpl implements DeliveryService {
     static Logger logger = Logger.getLogger("[Delivery Service]");
 
     private final DeliveryRepository repository;
-    private final DroneServicePort droneService;
-    private final OrderServicePort orderService;
     private final List<DeliveryServiceObserver> observers = new ArrayList<>();
 
-    public DeliveryServiceImpl(DeliveryRepository repository, DroneServicePort droneService, OrderServicePort orderService) {
+    public DeliveryServiceImpl(DeliveryRepository repository) {
         this.repository = repository;
-        this.droneService = droneService;
-        this.orderService = orderService;
     }
 
     @Override
@@ -36,16 +32,18 @@ public class DeliveryServiceImpl implements DeliveryService {
         repository.save(delivery);
         logger.log(Level.INFO, "schedule delivery " + delivery.getId().value() + " for order " + orderId);
         observers.forEach(o -> o.notifyDeliveryScheduled(delivery.getId().value()));
+        /* the drone is not requested here: saving announces the delivery, and whoever owns the
+           fleet answers with a drone of its own accord */
+        return delivery;
+    }
 
-        var droneId = droneService.requestAvailableDrone(pickupLat, pickupLng, weightKg);
-        if (droneId.isPresent()) {
-            delivery.assignDrone(droneId.get());
-            repository.save(delivery);
-            logger.log(Level.INFO, "drone " + droneId.get() + " assigned to delivery " + delivery.getId().value());
-        } else {
-            logger.log(Level.WARNING, "no drone available for delivery " + delivery.getId().value());
-        }
-
+    @Override
+    public Delivery assignDrone(DeliveryId deliveryId, String droneId) {
+        var delivery = repository.findById(deliveryId)
+            .orElseThrow(() -> new IllegalArgumentException("Delivery not found: " + deliveryId));
+        delivery.assignDrone(droneId);
+        repository.save(delivery);
+        logger.log(Level.INFO, "drone " + droneId + " assigned to delivery " + deliveryId.value());
         return delivery;
     }
 
@@ -77,22 +75,11 @@ public class DeliveryServiceImpl implements DeliveryService {
         var delivery = repository.findById(deliveryId)
             .orElseThrow(() -> new IllegalArgumentException("Delivery not found: " + deliveryId));
         delivery.complete();
-        /* read the events before saving: the repository hands them to the event store and clears them */
-        var events = List.copyOf(delivery.pendingEvents());
         repository.save(delivery);
         logger.log(Level.INFO, "complete delivery " + deliveryId.value());
         observers.forEach(o -> o.notifyDeliveryCompleted(deliveryId.value()));
-
-        events.stream()
-            .filter(e -> e instanceof DeliveryCompleted)
-            .map(e -> (DeliveryCompleted) e)
-            .forEach(e -> {
-                logger.log(Level.INFO, "notifying delivery-completed for order " + e.orderId()
-                    + " and releasing drone " + e.droneId());
-                orderService.notifyDeliveryCompleted(e.orderId());
-                droneService.releaseDrone(e.droneId());
-            });
-
+        /* neither the order nor the fleet is called: saving announces the completion, and each
+           of them decides what to do with it */
         return delivery;
     }
 

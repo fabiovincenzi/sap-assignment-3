@@ -118,6 +118,10 @@ services:
     environment:
       - DELIVERY_HOST=delivery-service
       - DELIVERY_PORT=8091
+      - EV_CHANNELS_LOCATION=broker:9092
+    depends_on:
+      broker:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8092/health"]
       interval: 15s

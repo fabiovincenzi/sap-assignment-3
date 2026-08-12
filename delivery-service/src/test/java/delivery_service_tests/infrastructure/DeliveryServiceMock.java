@@ -42,6 +42,12 @@ public class DeliveryServiceMock implements DeliveryService {
     }
 
     @Override
+    public Delivery assignDrone(DeliveryId deliveryId, String droneId) {
+        lastDroneId = droneId;
+        return aDelivery(deliveryId.value());
+    }
+
+    @Override
     public void updateDronePosition(String droneId, double lat, double lng) {
         lastDroneId = droneId;
         lastLat = lat;
