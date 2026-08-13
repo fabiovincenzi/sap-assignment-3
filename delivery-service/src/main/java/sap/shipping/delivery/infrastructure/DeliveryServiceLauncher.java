@@ -36,7 +36,7 @@ public class DeliveryServiceLauncher extends AbstractVerticle {
         var repo = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(),
             new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView(), publisher);
         var service = new DeliveryServiceImpl(repo);
-        var controller = new DeliveryController(service);
+        var controller = new DeliveryController();
 
         try {
             service.addObserver(new PrometheusDeliveryServiceObserver(METRICS_PORT));
