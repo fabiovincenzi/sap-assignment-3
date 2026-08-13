@@ -36,6 +36,7 @@ public class OrderServiceLauncher extends AbstractVerticle {
         var deliveryProxy = new DeliveryServiceEventBasedProxy(vertx, EV_CHANNELS_LOCATION);
 
         var orderService = new OrderService(orderRepo, deliveryProxy);
+        vertx.deployVerticle(new OrderServiceEventBasedController(orderService, EV_CHANNELS_LOCATION));
         var userService = new UserService(userRepo);
         var controller = new OrderController(orderService, userService);
 
