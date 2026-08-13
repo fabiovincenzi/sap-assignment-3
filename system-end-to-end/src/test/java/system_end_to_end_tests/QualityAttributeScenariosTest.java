@@ -34,6 +34,9 @@ public class QualityAttributeScenariosTest {
 
     /** Response measure declared by QAS-A. */
     private static final Duration DETECTION_BUDGET = Duration.ofSeconds(15);
+
+    /** How long the fleet is given to be saturated, allowing for the asynchronous assignment. */
+    private static final Duration SATURATION_BUDGET = Duration.ofSeconds(30);
     private static final File REPO_ROOT = new File("..");
 
     /**
@@ -77,11 +80,19 @@ public class QualityAttributeScenariosTest {
         registerADrone();
         assertThat(availableDrones()).as("at least one drone must be available").isGreaterThan(0);
 
-        /* every confirmed order takes one drone: keep going until they run out */
-        while (availableDrones() > 0) {
+        /* A confirmed order takes a drone, but not on the spot: the fleet answers the announced
+           delivery a moment later. The gauge is therefore read repeatedly rather than once, also
+           because the previous scenario leaves the fleet a backlog of deliveries to serve, which
+           it drains as soon as it is back up. */
+        var deadline = Instant.now().plus(SATURATION_BUDGET);
+        while (Instant.now().isBefore(deadline)) {
+            if (availableDrones() == 0) {
+                break;
+            }
             placeAndConfirmAnOrder();
+            Thread.sleep(500);
         }
-        assertThat(availableDrones()).isZero();
+        assertThat(availableDrones()).as("the fleet must end up saturated").isZero();
         System.out.println("### QAS-B - fleet saturated: drones_available = 0");
 
         var tracking = placeAndConfirmAnOrder();

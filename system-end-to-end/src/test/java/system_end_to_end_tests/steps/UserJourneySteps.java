@@ -7,7 +7,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -21,6 +24,10 @@ public class UserJourneySteps {
 
     private static final String GATEWAY = "http://localhost:8080";
     private static final String API = GATEWAY + "/api/v1";
+
+    /** How long the choreography is given to settle before the journey gives up. */
+    private static final Duration SETTLING_BUDGET = Duration.ofSeconds(20);
+    private static final long POLL_INTERVAL_MILLIS = 500;
 
     private JsonObject order;
     private JsonObject tracking;
@@ -81,19 +88,36 @@ public class UserJourneySteps {
 
     @Then("the tracking of my order reports a delivery")
     public void theTrackingReportsADelivery() throws Exception {
-        var response = get(API + "/tracking/" + order.getString("id"));
-
-        assertThat(response.statusCode()).isEqualTo(200);
-        tracking = new JsonObject(response.body());
-        assertThat(tracking.getBoolean("hasDelivery"))
-            .as("confirming the order must have triggered a delivery")
-            .isTrue();
+        tracking = awaitTracking(t -> Boolean.TRUE.equals(t.getBoolean("hasDelivery")),
+            "confirming the order must have triggered a delivery");
     }
 
-    @Then("the delivery has a drone assigned")
-    public void theDeliveryHasADroneAssigned() {
-        assertThat(tracking.getString("deliveryStatus")).isEqualTo("DRONE_ASSIGNED");
+    @Then("the delivery eventually has a drone assigned")
+    public void theDeliveryEventuallyHasADroneAssigned() throws Exception {
+        tracking = awaitTracking(t -> "DRONE_ASSIGNED".equals(t.getString("deliveryStatus")),
+            "the fleet must answer the announced delivery with a drone");
         assertThat(tracking.getString("droneId")).isNotBlank();
+    }
+
+    /**
+     * Confirming an order no longer produces the whole outcome at once: the delivery and its
+     * drone arrive as answers to announced facts, so the journey polls instead of asserting on
+     * the spot.
+     */
+    private JsonObject awaitTracking(Predicate<JsonObject> settled, String what) throws Exception {
+        var deadline = Instant.now().plus(SETTLING_BUDGET);
+        JsonObject last = null;
+        while (Instant.now().isBefore(deadline)) {
+            var response = get(API + "/tracking/" + order.getString("id"));
+            assertThat(response.statusCode()).isEqualTo(200);
+            last = new JsonObject(response.body());
+            if (settled.test(last)) {
+                return last;
+            }
+            Thread.sleep(POLL_INTERVAL_MILLIS);
+        }
+        throw new AssertionError(what + ", but after " + SETTLING_BUDGET.toSeconds()
+            + "s the tracking was still " + last);
     }
 
     private HttpResponse<String> get(String url) throws Exception {

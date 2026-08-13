@@ -2,74 +2,81 @@ package delivery_service_tests.component_tests.steps;
 
 import io.cucumber.java.After;
 import io.cucumber.java.Before;
-import io.cucumber.java.en.*;
+import io.cucumber.java.en.Then;
+import io.cucumber.java.en.When;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
-
-import delivery_service_tests.infrastructure.Synchroniser;
-import sap.shipping.delivery.application.DroneServicePort;
-import sap.shipping.delivery.application.OrderServicePort;
+import sap.shipping.common.kafka.InputEventChannel;
+import sap.shipping.common.kafka.OutputEventChannel;
 import sap.shipping.delivery.application.DeliveryServiceImpl;
-import sap.shipping.delivery.infrastructure.DeliveryController;
+import sap.shipping.delivery.infrastructure.DeliveryServiceEventBasedController;
 import sap.shipping.delivery.infrastructure.EventSourcedDeliveryRepository;
 import sap.shipping.delivery.infrastructure.InMemoryDeliveryEventStore;
 import sap.shipping.delivery.infrastructure.InMemoryDeliveryLookupView;
 import sap.shipping.delivery.infrastructure.InMemoryDeliverySnapshotStore;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Component test: the delivery service is started whole - controller, application and
- * event-sourced persistence - and driven from the outside through its HTTP API, exactly
- * as a client would. Only the other services are stubbed.
+ * Drives the whole delivery service through its event channels, the way a caller would: the
+ * service is started for real, only the broker is shared with the environment.
  */
 public class DeliverySteps {
 
-    private static final int SERVICE_PORT = 9594;
-    private static final String DELIVERIES_ENDPOINT = "http://localhost:" + SERVICE_PORT + "/api/deliveries";
+    private static final String CREATE_REQUESTS = "create-delivery-requests";
+    private static final String CREATE_APPROVED = "create-delivery-requests-approved";
 
     private Vertx vertx;
+    private OutputEventChannel requests;
+    private InputEventChannel approved;
+    private final CompletableFuture<JsonObject> reply = new CompletableFuture<>();
+    private String requestId;
     private JsonObject currentDelivery;
 
     @Before
     public void startTheService() throws Exception {
-        var sync = new Synchroniser();
+        BrokerAvailability.assumeReachable();
+        var broker = BrokerAvailability.address();
         vertx = Vertx.vertx();
 
         var repository = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(),
             new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView());
-
-        /* no stub of the neighbouring services is needed any more: the delivery service does
-           not call anyone, it announces facts */
         var service = new DeliveryServiceImpl(repository);
-        var controller = new DeliveryController(service);
 
-        vertx.createHttpServer()
-            .requestHandler(controller.createRouter(vertx))
-            .listen(SERVICE_PORT)
-            .onSuccess(server -> sync.notifySync());
-        sync.awaitSync();
+        vertx.deployVerticle(new DeliveryServiceEventBasedController(service, broker))
+            .toCompletionStage().toCompletableFuture().get(20, TimeUnit.SECONDS);
+
+        requestId = UUID.randomUUID().toString();
+        requests = new OutputEventChannel(vertx, CREATE_REQUESTS, broker);
+        approved = new InputEventChannel(vertx, CREATE_APPROVED, broker, "component-test-" + requestId);
+        approved.init(event -> {
+            if (requestId.equals(event.getString("requestId"))) {
+                reply.complete(event);
+            }
+        }).toCompletionStage().toCompletableFuture().get(20, TimeUnit.SECONDS);
     }
 
     @After
     public void stopTheService() {
-        vertx.close();
+        if (vertx != null) {
+            vertx.close();
+        }
     }
 
     @When("a delivery is scheduled for order {string} from \\({double}, {double}) to \\({double}, {double}) weighing {double} kg")
-    public void schedule_delivery(String orderId, double pLat, double pLng, double dLat, double dLng, double weight) throws Exception {
-        var body = new JsonObject()
+    public void schedule_delivery(String orderId, double pLat, double pLng, double dLat, double dLng, double weight)
+            throws Exception {
+        requests.postEvent(requestId, new JsonObject()
+            .put("requestId", requestId)
             .put("orderId", orderId)
             .put("pickupLat", pLat).put("pickupLng", pLng)
             .put("deliveryLat", dLat).put("deliveryLng", dLng)
-            .put("weightKg", weight);
-        currentDelivery = new JsonObject(post(DELIVERIES_ENDPOINT, body).body());
+            .put("weightKg", weight));
+        currentDelivery = reply.get(20, TimeUnit.SECONDS);
     }
 
     @Then("the delivery is created with status {string}")
@@ -80,17 +87,5 @@ public class DeliverySteps {
     @Then("the delivery has no drone assigned")
     public void delivery_has_no_drone() {
         assertThat(currentDelivery.getString("droneId")).isNull();
-    }
-
-    private HttpResponse<String> post(String url, JsonObject body) throws Exception {
-        var publisher = body == null
-            ? HttpRequest.BodyPublishers.noBody()
-            : HttpRequest.BodyPublishers.ofString(body.encode());
-        var request = HttpRequest.newBuilder()
-            .uri(URI.create(url))
-            .header("Content-Type", "application/json")
-            .POST(publisher)
-            .build();
-        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
     }
 }
