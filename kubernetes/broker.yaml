@@ -1,0 +1,100 @@
+# -----------------------------------------
+# Zookeeper
+# -----------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper-deployment
+  namespace: shipping-on-the-air
+  labels:
+    app: zookeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+        - name: zookeeper
+          image: confluentinc/cp-zookeeper:7.5.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 2181
+          env:
+            - name: ZOOKEEPER_CLIENT_PORT
+              value: "2181"
+            - name: ZOOKEEPER_TICK_TIME
+              value: "2000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: shipping-on-the-air
+spec:
+  selector:
+    app: zookeeper
+  ports:
+    - port: 2181
+  type: ClusterIP
+---
+# -----------------------------------------
+# Kafka broker
+# -----------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broker-deployment
+  namespace: shipping-on-the-air
+  labels:
+    app: broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker
+  template:
+    metadata:
+      labels:
+        app: broker
+    spec:
+      containers:
+        - name: broker
+          image: confluentinc/cp-kafka:7.5.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9092
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "zookeeper:2181"
+            # advertised on the Service name, which is how the other pods reach it
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://broker:9092"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "0"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: broker
+  namespace: shipping-on-the-air
+spec:
+  selector:
+    app: broker
+  ports:
+    - port: 9092
+  type: ClusterIP

@@ -1,0 +1,79 @@
+# -----------------------------------------
+# Prometheus configuration
+# -----------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: shipping-on-the-air
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 10s
+    scrape_configs:
+      - job_name: monitoring-order-service
+        static_configs:
+          - targets: [order-service:9490]
+      - job_name: monitoring-delivery-service
+        static_configs:
+          - targets: [delivery-service:9491]
+      - job_name: monitoring-drone-service
+        static_configs:
+          - targets: [drone-service:9493]
+      # the gateway is the one replicated component, so a ClusterIP would load balance the
+      # scrapes and mix three pods into a single series. The headless Service resolves to
+      # every pod address instead, giving one target per replica.
+      - job_name: monitoring-api-gateway
+        dns_sd_configs:
+          - names: [api-gateway-metrics]
+            type: A
+            port: 9492
+---
+# -----------------------------------------
+# Prometheus
+# -----------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-deployment
+  namespace: shipping-on-the-air
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: shipping-on-the-air
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+  type: ClusterIP
