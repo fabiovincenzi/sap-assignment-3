@@ -35,7 +35,9 @@ public class DeliveryServiceEventBasedProxy implements DeliveryServicePort {
     static final String GET_DELIVERY_REQUESTS_APPROVED_EVC = "get-delivery-requests-approved";
     static final String GET_DELIVERY_REQUESTS_REJECTED_EVC = "get-delivery-requests-rejected";
 
-    static final String CONSUMER_GROUP = "api-gateway";
+    // one group per instance, not one per service: a reply belongs to the replica holding the
+    // pending answer, so every replica has to see all of them instead of taking a share
+    static final String CONSUMER_GROUP = "api-gateway-" + UUID.randomUUID();
 
     private static final long REPLY_TIMEOUT_SECONDS = 5;
 
