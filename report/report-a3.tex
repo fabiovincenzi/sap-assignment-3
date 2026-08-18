@@ -142,12 +142,11 @@ La sequenza completa \`e riportata nella tabella~\ref{tab:coreografia}.
 \textbf{\#} & \textbf{Attore} & \textbf{Azione} \\
 \midrule
 1 & utente & \texttt{POST /api/v1/orders/\{id\}/confirm} sull'api-gateway \\
-2 & order-service & conferma l'ordine e pubblica su \texttt{create-delivery-requests}, senza iscriversi alle risposte \\
-3 & delivery-service & crea la consegna in stato \texttt{SCHEDULED}, pubblica l'esito e annuncia \texttt{new-delivery-created} \\
+2 & order-service & conferma l'ordine e annuncia il fatto su \texttt{order-confirmed}, senza rivolgersi a nessuno in particolare \\
+3 & delivery-service & reagisce al fatto creando la consegna in stato \texttt{SCHEDULED}, e ne annuncia la nascita su \texttt{new-delivery-created} \\
 4 & drone-service & reagisce all'annuncio e pubblica \texttt{drone-assigned} oppure \texttt{drone-unavailable} \\
 5 & delivery-service & riceve l'assegnazione e la consegna passa a \texttt{DRONE\_ASSIGNED} \\
-6 & delivery-service & a consegna ultimata pubblica \texttt{delivery-completed} \\
-7 & order e drone & ciascuno reagisce: l'ordine si chiude, il drone torna disponibile \\
+6 & drone-service & riferisce le proprie posizioni su \texttt{drone-position-reports}, che alimentano il tracking \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -225,8 +224,8 @@ gruppo C, consumatore 2 & 0 & stessa partizione, ma non gli appartiene \\
 L'ultima riga della tabella~\ref{tab:gruppi} chiarisce un punto che si presta a fraintendimenti: i
 messaggi non ricevuti non erano stati distrutti, tant'\`e che il gruppo B li ha letti subito dopo.
 Semplicemente non erano stati \emph{consegnati} a quel consumatore. Nel sistema ogni servizio usa
-quindi un gruppo distinto, altrimenti order-service e drone-service, entrambi interessati a
-\texttt{delivery-completed}, si sottrarrebbero gli eventi a vicenda.
+quindi un gruppo distinto: due servizi che condividessero il gruppo su un canale di interesse
+comune si sottrarrebbero gli eventi a vicenda, ciascuno vedendone solo una parte.
 
 Ne discende anche il limite al parallelismo: aggiungere consumatori a un gruppo non aumenta la
 capacit\`a oltre il numero di partizioni, perch\'e i consumatori eccedenti restano inattivi.
@@ -241,14 +240,15 @@ Un canale di eventi non possiede il concetto di risposta, che HTTP fornisce nati
 adottato, quello del laboratorio, \`e di associare a ogni operazione \textbf{tre canali}: uno di
 richiesta e due di esito, che trasportano l'informazione altrimenti veicolata dal codice di stato.
 
-\begin{lstlisting}[caption={La terna di canali per la creazione di una consegna}]
-create-delivery-requests             richiesta
-create-delivery-requests-approved    esito positivo
-create-delivery-requests-rejected    esito negativo, con la motivazione
+\begin{lstlisting}[caption={La terna di canali per l'interrogazione di una consegna}]
+get-delivery-requests             richiesta
+get-delivery-requests-approved    esito positivo
+get-delivery-requests-rejected    esito negativo, con la motivazione
 \end{lstlisting}
 
-Il delivery-service espone quattro terne, per creare, avviare, completare e interrogare una
-consegna.
+Il delivery-service espone una sola terna, quella dell'interrogazione: \`e l'unico punto del
+sistema in cui qualcuno pone una domanda e ne attende l'esito. Tutte le altre interazioni sono
+fatti annunciati, come la sezione successiva descrive.
 
 I canali di esito sono per\`o condivisi da tutti i chiamanti, quindi ogni richiesta porta con s\'e un
 \texttt{requestId} che la risposta ripete. Nell'api-gateway questo consente di ricostruire una
@@ -296,8 +296,8 @@ come segue.
 \midrule
 delivery-service & interamente a eventi. Dell'API REST resta il solo \texttt{/health}, e il controller passa da circa 190 a 45 righe \\
 api-gateway & mantiene l'API REST verso l'esterno; internamente sostituisce il proxy HTTP con uno a canali \\
-order-service & mantiene la propria architettura. Pubblica la richiesta di consegna e si iscrive a \texttt{delivery-completed} \\
-drone-service & mantiene la propria architettura. Reagisce a \texttt{new-delivery-created} e a \texttt{delivery-completed} \\
+order-service & mantiene la propria architettura. Annuncia \texttt{order-confirmed} attraverso un observer \\
+drone-service & mantiene la propria architettura. Reagisce a \texttt{new-delivery-created} e riferisce le posizioni \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -320,30 +320,50 @@ rimaste invariate, e ne \`e stata fornita un'implementazione che pubblica su un 
 effettuare una chiamata HTTP. Nessuna logica di dominio \`e stata toccata, il che \`e il beneficio
 che l'architettura esagonale, adottata nell'Assignment~1, promette proprio per casi come questo.
 
-\subsection{Eventi di dominio ed Event Sourcing}
+\subsection{Comandi ed eventi}
 \label{sec:dominio}
 
-Oltre ai canali di richiesta, ogni consegna pubblica i propri eventi di dominio su un canale
-dinamico \texttt{delivery-\{id\}-events}. Il meccanismo rispetta l'architettura esagonale: una porta
-\texttt{DeliveryEventPublisher} nel livello applicativo e un adapter Kafka nell'infrastruttura.
+Non tutto ci\`o che viaggia sui canali ha la stessa natura, e la distinzione ha guidato la forma
+degli adapter in uscita.
 
-Il punto interessante \`e il luogo dell'invocazione, all'interno del salvataggio del repository:
+Un \textbf{comando} \`e rivolto a un destinatario preciso e attende un esito: chi lo invia decide
+che cosa deve accadere. \`E il caso dell'interrogazione che l'api-gateway rivolge al
+delivery-service per costruire il tracking, e infatti l\`i esiste una porta,
+\texttt{DeliveryServicePort}, dichiarata dal livello applicativo del gateway e implementata da un
+proxy.
 
-\begin{lstlisting}[caption={Due consumatori derivati dallo stesso stream di eventi}]
-newEvents.forEach(event -> {
-    projector.project(delivery.getId(), event);
-    publisher.publish(delivery.getId(), event);
-});
+Un \textbf{evento} constata un fatto avvenuto, non ha destinatario e non attende nulla: chi lo
+riceve decide che cosa farne. \`E il caso dell'ordine confermato e della posizione di un drone.
+Modellarli come porte richiederebbe di dichiarare una dipendenza verso nessuno, quindi escono
+attraverso gli \textbf{observer}, lo stesso meccanismo gi\`a usato dall'Assignment~2 per
+l'osservabilit\`a, con una seconda implementazione che pubblica su un canale.
+
+\begin{lstlisting}[caption={Il servizio annuncia, senza sapere chi ascolta}]
+observers.forEach(o -> o.notifyOrderConfirmed(event));
 \end{lstlisting}
 
-Il proiettore aggiorna il read model introdotto con CQRS nell'Assignment~2; il publisher alimenta il
-canale. Entrambi sono \textbf{dati derivati} dalla stessa fonte di verit\`a, cio\`e lo stream di
-eventi, ed entrambi sono ricostruibili da essa. \`E la risposta concreta alla domanda su come Event
-Sourcing ed Event-driven Architecture si relazionino: il primo produce lo stream, il secondo lo
-distribuisce.
+Ne discende una propriet\`a verificabile del sistema: nell'intero progetto \textbf{esiste una sola porta}
+verso il delivery-service, quella dell'api-gateway, ed esiste perch\'e il gateway \`e l'unico che
+pone una domanda. Tutto il resto sono fatti annunciati.
 
-L'implementazione predefinita della porta \`e \texttt{NO\_OP}, il che permette agli scenari in cui
-gli eventi vanno persistiti ma non annunciati, come i test unitari, di non dipendere da un broker.
+Il beneficio pratico \`e che aggiungere un consumatore non costa nulla a chi pubblica: un servizio
+interessato agli ordini confermati si iscrive al canale, e n\'e l'order-service n\'e il suo dominio
+vengono toccati. Con un comando avremmo dovuto aggiungere una chiamata al mittente.
+
+\paragraph{Rapporto con l'Event Sourcing.} Gli eventi che il dominio del delivery-service emette
+restano \textbf{interni}: sono la sua fonte di verit\`a, vengono persistiti nell'event store e
+alimentano il read model attraverso il proiettore.
+
+\begin{lstlisting}[caption={Il read model e' derivato dallo stream, e ricostruibile da esso}]
+newEvents.forEach(event -> projector.project(delivery.getId(), event));
+\end{lstlisting}
+
+Ci\`o che viaggia sui canali \`e invece un sottoinsieme scelto e riformulato per l'esterno, per
+esempio \texttt{new-delivery-created}, il cui payload porta peso e punto di ritiro perch\'e il
+destinatario possa agire senza chiedere altro. La distinzione fra evento di dominio ed evento di
+integrazione \`e deliberata: pubblicare l'intero stream interno legherebbe i consumatori alla
+rappresentazione interna dell'aggregate, e ogni suo cambiamento diventerebbe un cambiamento di
+contratto.
 
 % ============================================================
 \section{Scaling e Service Levels}
@@ -606,12 +626,12 @@ La cosa \`e stata verificata sul cluster portando il servizio a due repliche. L'
 osservata \`e stata la seguente:
 
 \begin{lstlisting}[caption={Assegnazione dei canali con due repliche del delivery-service}]
-pod A   create-delivery-requests, get-delivery-requests, start-delivery-requests
-pod B   drone-assigned, complete-delivery-requests, drone-position-reports, drone-unavailable
+pod A   order-confirmed, drone-unavailable
+pod B   drone-assigned, drone-position-reports, get-delivery-requests
 \end{lstlisting}
 
 Il ciclo di vita di una singola consegna viene cos\`i spezzato fra due processi con memorie
-separate: la consegna nasce in A, ma la risposta della flotta arriva in B, che non la conosce. Il
+separate: la consegna nasce in A, ma l'assegnazione del drone arriva in B, che non la conosce. Il
 comportamento osservato \`e stato che nessuna consegna riceve pi\`u un drone e resta
 indefinitamente in stato \texttt{SCHEDULED}, con il seguente messaggio nel log della replica B:
 
@@ -654,13 +674,15 @@ come event store del delivery-service, il che avrebbe fatto coincidere i due pun
 \`E stata scartata per contenere il rischio, ma resta una direzione coerente, tanto pi\`u che
 risolverebbe insieme durabilit\`a e condivisione dello stato fra repliche.
 
-\paragraph{Un topic per consegna non \`e sostenibile su larga scala.} Gli eventi di dominio sono
-pubblicati su un canale dinamico \texttt{delivery-\{id\}-events}, creato alla prima pubblicazione di
-ciascuna consegna. La soluzione ricalca l'esempio del laboratorio, dove i canali dinamici sono pochi
-e a vita breve, ma qui il numero di topic cresce linearmente con il numero di consegne, e ogni topic
-ha un costo in file e metadati sul broker. La forma abituale per un flusso di questo tipo \`e un
-unico topic con l'identificatore come chiave, cio\`e lo stesso meccanismo gi\`a impiegato per
-garantire l'ordinamento.
+\paragraph{Il completamento di una consegna non \`e esposto.} Il dominio della consegna modella
+l'intero ciclo di vita, transito e completamento inclusi, con i relativi eventi, ed \`e cos\`i che
+lo esercitano i test di unit\`a. Nessun adapter per\`o espone quelle due operazioni: in
+Assignment~2 erano endpoint REST raggiungibili solo interrogando il servizio direttamente, mai
+passati dal gateway, e i canali che le trasponevano sono stati rimossi in quanto privi di
+chiamante. Ne consegue che una consegna si ferma allo stato \texttt{DRONE\_ASSIGNED} e il canale
+\texttt{delivery-completed} non esiste: la chiusura dell'ordine e il rilascio del drone restano
+possibili sulle API REST che i due servizi hanno mantenuto. Riattivare il percorso
+significherebbe esporre le due operazioni sul gateway e ripristinare la terna corrispondente.
 
 \paragraph{La readiness probe non riflette la reale disponibilit\`a del servizio.} L'endpoint
 \texttt{/health} risponde \texttt{UP} in modo incondizionato, con l'elenco dei controlli vuoto, ed
