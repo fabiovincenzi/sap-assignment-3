@@ -36,12 +36,12 @@ Ports: Order 8090, Delivery 8091, Drone 8092, Gateway 8080.
 
 ## API Documentation (Swagger UI)
 
-Each service exposes its OpenAPI spec and an interactive Swagger UI:
+The services that kept their REST API expose the OpenAPI spec and an interactive Swagger UI.
+The delivery service does not: it is reached over event channels and serves only its health check.
 
 | Service          | Swagger UI                           | OpenAPI Spec                           |
 |------------------|--------------------------------------|----------------------------------------|
 | Order Service    | http://localhost:8090/swagger-ui     | http://localhost:8090/api/openapi.yaml |
-| Delivery Service | http://localhost:8091/swagger-ui     | http://localhost:8091/api/openapi.yaml |
 | Drone Service    | http://localhost:8092/swagger-ui     | http://localhost:8092/api/openapi.yaml |
 
 ## Test

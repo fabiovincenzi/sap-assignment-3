@@ -26,15 +26,25 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"username\": \"fabio\",\n  \"password\": \"secret123\"\n}"
             },
             "url": {
               "raw": "{{gwUrl}}/users/register",
-              "host": ["{{gwUrl}}"],
-              "path": ["users", "register"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "users",
+                "register"
+              ]
             }
           }
         },
@@ -53,15 +63,25 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"username\": \"fabio\",\n  \"password\": \"secret123\"\n}"
             },
             "url": {
               "raw": "{{gwUrl}}/users/login",
-              "host": ["{{gwUrl}}"],
-              "path": ["users", "login"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "users",
+                "login"
+              ]
             }
           }
         },
@@ -83,15 +103,24 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"maxWeightKg\": 5.0,\n  \"lat\": 44.14,\n  \"lng\": 12.24\n}"
             },
             "url": {
               "raw": "{{gwUrl}}/drones",
-              "host": ["{{gwUrl}}"],
-              "path": ["drones"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "drones"
+              ]
             }
           }
         },
@@ -114,15 +143,24 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"customerId\": \"fabio\",\n  \"pickupStreet\": \"Via Cesare Pavese 50\",\n  \"pickupLat\": 44.14,\n  \"pickupLng\": 12.24,\n  \"deliveryStreet\": \"Piazza Saffi 1\",\n  \"deliveryLat\": 44.22,\n  \"deliveryLng\": 12.04,\n  \"weightKg\": 2.5\n}"
             },
             "url": {
               "raw": "{{gwUrl}}/orders",
-              "host": ["{{gwUrl}}"],
-              "path": ["orders"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
             }
           }
         },
@@ -144,8 +182,13 @@
             "header": [],
             "url": {
               "raw": "{{gwUrl}}/orders/{{orderId}}",
-              "host": ["{{gwUrl}}"],
-              "path": ["orders", "{{orderId}}"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
             }
           }
         },
@@ -169,8 +212,13 @@
             "header": [],
             "url": {
               "raw": "{{gwUrl}}/tracking/{{orderId}}",
-              "host": ["{{gwUrl}}"],
-              "path": ["tracking", "{{orderId}}"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "tracking",
+                "{{orderId}}"
+              ]
             }
           }
         },
@@ -191,12 +239,26 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "" },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": ""
+            },
             "url": {
               "raw": "{{gwUrl}}/orders/{{orderId}}/confirm",
-              "host": ["{{gwUrl}}"],
-              "path": ["orders", "{{orderId}}", "confirm"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "confirm"
+              ]
             }
           }
         },
@@ -225,8 +287,13 @@
             "header": [],
             "url": {
               "raw": "{{gwUrl}}/tracking/{{orderId}}",
-              "host": ["{{gwUrl}}"],
-              "path": ["tracking", "{{orderId}}"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "tracking",
+                "{{orderId}}"
+              ]
             }
           }
         },
@@ -248,8 +315,13 @@
             "header": [],
             "url": {
               "raw": "{{gwUrl}}/tracking/does-not-exist",
-              "host": ["{{gwUrl}}"],
-              "path": ["tracking", "does-not-exist"]
+              "host": [
+                "{{gwUrl}}"
+              ],
+              "path": [
+                "tracking",
+                "does-not-exist"
+              ]
             }
           }
         }
@@ -266,20 +338,13 @@
             "header": [],
             "url": {
               "raw": "{{orderUrl}}/orders/{{orderId}}",
-              "host": ["{{orderUrl}}"],
-              "path": ["orders", "{{orderId}}"]
-            }
-          }
-        },
-        {
-          "name": "Delivery - consegna per ordine",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{deliveryUrl}}/deliveries/order/{{orderId}}",
-              "host": ["{{deliveryUrl}}"],
-              "path": ["deliveries", "order", "{{orderId}}"]
+              "host": [
+                "{{orderUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
             }
           }
         },
@@ -290,8 +355,13 @@
             "header": [],
             "url": {
               "raw": "{{droneUrl}}/drones/{{droneId}}",
-              "host": ["{{droneUrl}}"],
-              "path": ["drones", "{{droneId}}"]
+              "host": [
+                "{{droneUrl}}"
+              ],
+              "path": [
+                "drones",
+                "{{droneId}}"
+              ]
             }
           }
         }
@@ -299,12 +369,29 @@
     }
   ],
   "variable": [
-    { "key": "gwUrl", "value": "http://localhost:8080/api/v1" },
-    { "key": "orderUrl", "value": "http://localhost:8090/api" },
-    { "key": "deliveryUrl", "value": "http://localhost:8091/api" },
-    { "key": "droneUrl", "value": "http://localhost:8092/api" },
-    { "key": "orderId", "value": "" },
-    { "key": "droneId", "value": "" },
-    { "key": "userId", "value": "" }
+    {
+      "key": "gwUrl",
+      "value": "http://localhost:8080/api/v1"
+    },
+    {
+      "key": "orderUrl",
+      "value": "http://localhost:8090/api"
+    },
+    {
+      "key": "droneUrl",
+      "value": "http://localhost:8092/api"
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "droneId",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    }
   ]
 }
