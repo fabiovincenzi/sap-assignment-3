@@ -29,10 +29,6 @@ spec:
             - containerPort: 8090
             - containerPort: 9490
           env:
-            - name: DELIVERY_HOST
-              value: "delivery-service"
-            - name: DELIVERY_PORT
-              value: "8091"
             - name: EV_CHANNELS_LOCATION
               value: "broker:9092"
           # liveness kills and replaces, readiness only takes the pod out of the Service:

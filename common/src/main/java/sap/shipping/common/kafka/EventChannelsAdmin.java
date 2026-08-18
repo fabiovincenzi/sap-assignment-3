@@ -8,7 +8,7 @@ import org.apache.kafka.clients.admin.AdminClientConfig;
 import java.util.List;
 import java.util.Properties;
 
-/** Administrative operations on the event channels, used to reset them between tests. */
+/** Admin operations on the event channels, used to reset them between tests. */
 public class EventChannelsAdmin {
 
     private final KafkaAdminClient adminClient;

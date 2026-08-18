@@ -60,8 +60,6 @@ services:
       - 8090
       - 9490
     environment:
-      - DELIVERY_HOST=delivery-service
-      - DELIVERY_PORT=8091
       - EV_CHANNELS_LOCATION=broker:9092
     depends_on:
       broker:
@@ -116,8 +114,6 @@ services:
       - 8092
       - 9493
     environment:
-      - DELIVERY_HOST=delivery-service
-      - DELIVERY_PORT=8091
       - EV_CHANNELS_LOCATION=broker:9092
     depends_on:
       broker:
@@ -147,8 +143,6 @@ services:
     environment:
       - ORDER_HOST=order-service
       - ORDER_PORT=8090
-      - DELIVERY_HOST=delivery-service
-      - DELIVERY_PORT=8091
       - DRONE_HOST=drone-service
       - DRONE_PORT=8092
       - EV_CHANNELS_LOCATION=broker:9092

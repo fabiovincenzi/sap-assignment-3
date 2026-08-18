@@ -33,10 +33,6 @@ spec:
               value: "order-service"
             - name: ORDER_PORT
               value: "8090"
-            - name: DELIVERY_HOST
-              value: "delivery-service"
-            - name: DELIVERY_PORT
-              value: "8091"
             - name: DRONE_HOST
               value: "drone-service"
             - name: DRONE_PORT
