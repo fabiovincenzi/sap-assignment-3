@@ -38,4 +38,9 @@ public class PrometheusDroneServiceObserver implements DroneServiceObserver {
     public void notifyDroneAssigned(String droneId) {
         dronesAvailable.dec();
     }
+
+    @Override
+    public void notifyLocationUpdated(String droneId, double lat, double lng) {
+        // a position is not a metric: the gauges count drones, not where they are
+    }
 }

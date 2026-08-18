@@ -4,27 +4,34 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import sap.shipping.common.exagonal.Adapter;
 import sap.shipping.common.kafka.OutputEventChannel;
-import sap.shipping.drone.application.DeliveryServicePort;
+import sap.shipping.drone.application.DroneServiceObserver;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/**
- * Reports where a drone is, on the channel the delivery service listens to. A report expects no
- * answer, so there is no reply channel and nothing to wait for.
- */
+/** Reports where a drone is. A report expects no answer, so there is no reply channel. */
 @Adapter
-public class DeliveryServiceEventBasedProxy implements DeliveryServicePort {
+public class KafkaDroneServiceObserver implements DroneServiceObserver {
 
-    static Logger logger = Logger.getLogger("[Drone DeliveryEventProxy]");
+    static Logger logger = Logger.getLogger("[Drone Kafka Observer]");
 
     static final String DRONE_POSITION_REPORTS_EVC = "drone-position-reports";
 
     private final OutputEventChannel dronePositionReports;
 
-    public DeliveryServiceEventBasedProxy(Vertx vertx, String evChannelsLocation) {
+    public KafkaDroneServiceObserver(Vertx vertx, String evChannelsLocation) {
         this.dronePositionReports =
             new OutputEventChannel(vertx, DRONE_POSITION_REPORTS_EVC, evChannelsLocation);
+    }
+
+    @Override
+    public void notifyDroneAvailable(String droneId) {
+        // the fleet is the drone service's own business: nobody outside acts on it
+    }
+
+    @Override
+    public void notifyDroneAssigned(String droneId) {
+        // announced by the assignment flow instead, which carries the delivery it belongs to
     }
 
     @Override

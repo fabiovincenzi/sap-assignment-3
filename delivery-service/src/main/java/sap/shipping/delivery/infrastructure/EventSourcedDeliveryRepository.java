@@ -1,7 +1,6 @@
 package sap.shipping.delivery.infrastructure;
 
 import sap.shipping.common.exagonal.Adapter;
-import sap.shipping.delivery.application.DeliveryEventPublisher;
 import sap.shipping.delivery.application.DeliveryEventStore;
 import sap.shipping.delivery.application.DeliveryLookupView;
 import sap.shipping.delivery.application.DeliveryProjector;
@@ -34,32 +33,19 @@ public class EventSourcedDeliveryRepository implements DeliveryRepository {
     private final DeliverySnapshotStore snapshotStore;
     private final DeliveryLookupView lookupView;
     private final DeliveryProjector projector;
-    private final DeliveryEventPublisher publisher;
     private final int snapshotEvery;
 
     public EventSourcedDeliveryRepository(DeliveryEventStore eventStore, DeliverySnapshotStore snapshotStore,
                                           DeliveryLookupView lookupView) {
-        this(eventStore, snapshotStore, lookupView, DEFAULT_SNAPSHOT_EVERY, DeliveryEventPublisher.NO_OP);
+        this(eventStore, snapshotStore, lookupView, DEFAULT_SNAPSHOT_EVERY);
     }
 
     public EventSourcedDeliveryRepository(DeliveryEventStore eventStore, DeliverySnapshotStore snapshotStore,
                                           DeliveryLookupView lookupView, int snapshotEvery) {
-        this(eventStore, snapshotStore, lookupView, snapshotEvery, DeliveryEventPublisher.NO_OP);
-    }
-
-    public EventSourcedDeliveryRepository(DeliveryEventStore eventStore, DeliverySnapshotStore snapshotStore,
-                                          DeliveryLookupView lookupView, DeliveryEventPublisher publisher) {
-        this(eventStore, snapshotStore, lookupView, DEFAULT_SNAPSHOT_EVERY, publisher);
-    }
-
-    public EventSourcedDeliveryRepository(DeliveryEventStore eventStore, DeliverySnapshotStore snapshotStore,
-                                          DeliveryLookupView lookupView, int snapshotEvery,
-                                          DeliveryEventPublisher publisher) {
         this.eventStore = eventStore;
         this.snapshotStore = snapshotStore;
         this.lookupView = lookupView;
         this.projector = new DeliveryProjector(lookupView);
-        this.publisher = publisher;
         this.snapshotEvery = snapshotEvery;
     }
 
@@ -76,11 +62,7 @@ public class EventSourcedDeliveryRepository implements DeliveryRepository {
         }
         eventStore.append(delivery.getId(), delivery.persistedVersion(), newEvents);
         delivery.clearEvents();
-        /* two derived consumers of the same stream: the read model and the event channel */
-        newEvents.forEach(event -> {
-            projector.project(delivery.getId(), event);
-            publisher.publish(delivery.getId(), event);
-        });
+        newEvents.forEach(event -> projector.project(delivery.getId(), event));
         takeSnapshotIfDue(delivery);
         logger.log(Level.INFO, "save delivery " + delivery.getId().value() + " - status " + delivery.status());
     }

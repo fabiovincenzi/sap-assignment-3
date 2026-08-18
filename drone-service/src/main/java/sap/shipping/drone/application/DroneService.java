@@ -15,12 +15,10 @@ public class DroneService {
     static Logger logger = Logger.getLogger("[Drone Service]");
 
     private final DroneRepository repository;
-    private final DeliveryServicePort deliveryService;
     private final List<DroneServiceObserver> observers = new ArrayList<>();
 
-    public DroneService(DroneRepository repository, DeliveryServicePort deliveryService) {
+    public DroneService(DroneRepository repository) {
         this.repository = repository;
-        this.deliveryService = deliveryService;
     }
 
     public void addObserver(DroneServiceObserver observer) {
@@ -62,7 +60,7 @@ public class DroneService {
         drone.updateLocation(new Location(lat, lng));
         repository.save(drone);
         logger.log(Level.INFO, "update location of drone " + droneId.value() + " to (" + lat + ", " + lng + ")");
-        deliveryService.notifyLocationUpdated(droneId.value(), lat, lng);
+        observers.forEach(o -> o.notifyLocationUpdated(droneId.value(), lat, lng));
         drone.clearEvents();
     }
 

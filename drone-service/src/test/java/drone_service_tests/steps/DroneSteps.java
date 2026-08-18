@@ -17,7 +17,7 @@ public class DroneSteps {
 
     public DroneSteps() {
         var repo = new InMemoryDroneRepository();
-        droneService = new DroneService(repo, (droneId, lat, lng) -> {});
+        droneService = new DroneService(repo);
     }
 
     @When("I register a drone at location \\({double}, {double}) with capacity {double} kg")

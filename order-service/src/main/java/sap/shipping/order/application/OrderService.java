@@ -15,12 +15,10 @@ public class OrderService {
     static Logger logger = Logger.getLogger("[Order Service]");
 
     private final OrderRepository repository;
-    private final DeliveryServicePort deliveryService;
     private final List<OrderServiceObserver> observers = new ArrayList<>();
 
-    public OrderService(OrderRepository repository, DeliveryServicePort deliveryService) {
+    public OrderService(OrderRepository repository) {
         this.repository = repository;
-        this.deliveryService = deliveryService;
     }
 
     public void addObserver(OrderServiceObserver observer) {
@@ -45,8 +43,8 @@ public class OrderService {
             .filter(e -> e instanceof OrderConfirmed)
             .map(e -> (OrderConfirmed) e)
             .forEach(event -> {
-                logger.log(Level.INFO, "notifying order-confirmed for order " + orderId.value());
-                deliveryService.notifyOrderConfirmed(event);
+                logger.log(Level.INFO, "announcing order-confirmed for order " + orderId.value());
+                observers.forEach(o -> o.notifyOrderConfirmed(event));
             });
         order.clearEvents();
         return order;

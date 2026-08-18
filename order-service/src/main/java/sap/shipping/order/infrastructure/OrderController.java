@@ -57,11 +57,6 @@ public class OrderController {
         return router;
     }
 
-    /**
-     * Health Check API (observability pattern). Reports whether the service is
-     * able to handle requests. The repositories are in-memory, so there is no
-     * external dependency to probe.
-     */
     private void healthCheck(RoutingContext ctx) {
         var reply = new JsonObject()
             .put("status", "UP")

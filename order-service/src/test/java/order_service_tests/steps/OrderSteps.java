@@ -19,7 +19,7 @@ public class OrderSteps {
     public OrderSteps() {
         var orderRepo = new InMemoryOrderRepository();
         var userRepo = new InMemoryUserRepository();
-        orderService = new OrderService(orderRepo, event -> {});
+        orderService = new OrderService(orderRepo);
         userService = new UserService(userRepo);
     }
 

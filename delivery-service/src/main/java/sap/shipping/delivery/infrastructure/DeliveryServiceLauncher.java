@@ -39,9 +39,8 @@ public class DeliveryServiceLauncher extends AbstractVerticle {
         var eventStore = new InMemoryDeliveryEventStore();
         var snapshotStore = new InMemoryDeliverySnapshotStore();
         var lookupView = new InMemoryDeliveryLookupView();
-        var publisher = new KafkaDeliveryEventPublisher(vertx, EV_CHANNELS_LOCATION);
 
-        var repo = new EventSourcedDeliveryRepository(eventStore, snapshotStore, lookupView, publisher);
+        var repo = new EventSourcedDeliveryRepository(eventStore, snapshotStore, lookupView);
         return new DeliveryServiceImpl(repo);
     }
 

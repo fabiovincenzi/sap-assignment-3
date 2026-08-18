@@ -31,14 +31,12 @@ public class OrderServiceLauncher extends AbstractVerticle {
         var userService = new UserService(new InMemoryUserRepository());
 
         startMetrics(orderService);
-        startEventChannels(orderService);
+        announceOnChannels(orderService);
         startHttpEndpoints(orderService, userService);
     }
 
     private OrderService buildOrderService() {
-        var repository = new InMemoryOrderRepository();
-        var deliveryProxy = new DeliveryServiceEventBasedProxy(vertx, EV_CHANNELS_LOCATION);
-        return new OrderService(repository, deliveryProxy);
+        return new OrderService(new InMemoryOrderRepository());
     }
 
     private void startMetrics(OrderService service) {
@@ -50,8 +48,9 @@ public class OrderServiceLauncher extends AbstractVerticle {
         }
     }
 
-    private void startEventChannels(OrderService service) {
-        vertx.deployVerticle(new OrderServiceEventBasedController(service, EV_CHANNELS_LOCATION));
+    // the announcement leaves through the same mechanism as the metrics: an observer
+    private void announceOnChannels(OrderService service) {
+        service.addObserver(new KafkaOrderServiceObserver(vertx, EV_CHANNELS_LOCATION));
     }
 
     private void startHttpEndpoints(OrderService orderService, UserService userService) {

@@ -5,6 +5,7 @@ import io.prometheus.metrics.exporter.httpserver.HTTPServer;
 import io.prometheus.metrics.instrumentation.jvm.JvmMetrics;
 import sap.shipping.common.exagonal.Adapter;
 import sap.shipping.order.application.OrderServiceObserver;
+import sap.shipping.order.domain.events.OrderConfirmed;
 
 @Adapter
 public class PrometheusOrderServiceObserver implements OrderServiceObserver {
@@ -32,5 +33,10 @@ public class PrometheusOrderServiceObserver implements OrderServiceObserver {
     @Override
     public void notifyOrderCreated(String orderId) {
         ordersCreatedTotal.inc();
+    }
+
+    @Override
+    public void notifyOrderConfirmed(OrderConfirmed event) {
+        // confirmations are not counted: the gauge tracks how many orders exist
     }
 }

@@ -17,8 +17,10 @@ import java.util.logging.Logger;
 /**
  * Inbound adapter of the delivery service, over event channels.
  *
- * Each operation has a request channel plus an approved and a rejected one, which carry what a
- * status code would carry. The requestId ties a reply to its request.
+ * Two kinds of message arrive here. A command is addressed to this service and expects an outcome,
+ * so it has a request channel plus an approved and a rejected one, which carry what a status code
+ * would carry, and a requestId tying each reply to its request. A fact is simply announced by
+ * somebody else: it has no reply channel, and a failure to act on it is only recorded.
  */
 @Adapter
 public class DeliveryServiceEventBasedController extends AbstractVerticle {
@@ -27,17 +29,8 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
 
     /* static event channel names */
 
-    static final String CREATE_DELIVERY_REQUESTS_EVC = "create-delivery-requests";
-    static final String CREATE_DELIVERY_REQUESTS_APPROVED_EVC = "create-delivery-requests-approved";
-    static final String CREATE_DELIVERY_REQUESTS_REJECTED_EVC = "create-delivery-requests-rejected";
-
-    static final String START_DELIVERY_REQUESTS_EVC = "start-delivery-requests";
-    static final String START_DELIVERY_REQUESTS_APPROVED_EVC = "start-delivery-requests-approved";
-    static final String START_DELIVERY_REQUESTS_REJECTED_EVC = "start-delivery-requests-rejected";
-
-    static final String COMPLETE_DELIVERY_REQUESTS_EVC = "complete-delivery-requests";
-    static final String COMPLETE_DELIVERY_REQUESTS_APPROVED_EVC = "complete-delivery-requests-approved";
-    static final String COMPLETE_DELIVERY_REQUESTS_REJECTED_EVC = "complete-delivery-requests-rejected";
+    /* a fact, not a request: the order service announces and does not wait for an outcome */
+    static final String ORDER_CONFIRMED_EVC = "order-confirmed";
 
     static final String GET_DELIVERY_REQUESTS_EVC = "get-delivery-requests";
     static final String GET_DELIVERY_REQUESTS_APPROVED_EVC = "get-delivery-requests-approved";
@@ -47,7 +40,6 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     static final String DRONE_POSITION_REPORTS_EVC = "drone-position-reports";
 
     static final String NEW_DELIVERY_CREATED_EVC = "new-delivery-created";
-    static final String DELIVERY_COMPLETED_EVC = "delivery-completed";
 
     /* the fleet answers an announced delivery on one of these two */
     static final String DRONE_ASSIGNED_EVC = "drone-assigned";
@@ -57,19 +49,10 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
 
     private final DeliveryService deliveryService;
     private final String evChannelsLocation;
+    private final String consumerGroup;
 
-    private InputEventChannel createDeliveryRequests;
-    private OutputEventChannel createDeliveryRequestsApproved;
-    private OutputEventChannel createDeliveryRequestsRejected;
+    private InputEventChannel orderConfirmed;
     private OutputEventChannel newDeliveryCreated;
-
-    private InputEventChannel startDeliveryRequests;
-    private OutputEventChannel startDeliveryRequestsApproved;
-    private OutputEventChannel startDeliveryRequestsRejected;
-
-    private InputEventChannel completeDeliveryRequests;
-    private OutputEventChannel completeDeliveryRequestsApproved;
-    private OutputEventChannel completeDeliveryRequestsRejected;
 
     private InputEventChannel getDeliveryRequests;
     private OutputEventChannel getDeliveryRequestsApproved;
@@ -79,29 +62,26 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
 
     private InputEventChannel droneAssigned;
     private InputEventChannel droneUnavailable;
-    private OutputEventChannel deliveryCompleted;
 
     public DeliveryServiceEventBasedController(DeliveryService deliveryService, String evChannelsLocation) {
+        this(deliveryService, evChannelsLocation, CONSUMER_GROUP);
+    }
+
+    /* the group is a parameter so that an instance under test does not share it with a running
+       one: consumers of the same group split the channels instead of each seeing them all */
+    public DeliveryServiceEventBasedController(DeliveryService deliveryService, String evChannelsLocation,
+                                               String consumerGroup) {
         this.deliveryService = deliveryService;
         this.evChannelsLocation = evChannelsLocation;
+        this.consumerGroup = consumerGroup;
     }
 
     @Override
     public void start() {
         logger.log(Level.INFO, "Delivery Service event channels initializing...");
 
-        createDeliveryRequests = input(CREATE_DELIVERY_REQUESTS_EVC);
-        createDeliveryRequestsApproved = output(CREATE_DELIVERY_REQUESTS_APPROVED_EVC);
-        createDeliveryRequestsRejected = output(CREATE_DELIVERY_REQUESTS_REJECTED_EVC);
+        orderConfirmed = input(ORDER_CONFIRMED_EVC);
         newDeliveryCreated = output(NEW_DELIVERY_CREATED_EVC);
-
-        startDeliveryRequests = input(START_DELIVERY_REQUESTS_EVC);
-        startDeliveryRequestsApproved = output(START_DELIVERY_REQUESTS_APPROVED_EVC);
-        startDeliveryRequestsRejected = output(START_DELIVERY_REQUESTS_REJECTED_EVC);
-
-        completeDeliveryRequests = input(COMPLETE_DELIVERY_REQUESTS_EVC);
-        completeDeliveryRequestsApproved = output(COMPLETE_DELIVERY_REQUESTS_APPROVED_EVC);
-        completeDeliveryRequestsRejected = output(COMPLETE_DELIVERY_REQUESTS_REJECTED_EVC);
 
         getDeliveryRequests = input(GET_DELIVERY_REQUESTS_EVC);
         getDeliveryRequestsApproved = output(GET_DELIVERY_REQUESTS_APPROVED_EVC);
@@ -111,12 +91,9 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
 
         droneAssigned = input(DRONE_ASSIGNED_EVC);
         droneUnavailable = input(DRONE_UNAVAILABLE_EVC);
-        deliveryCompleted = output(DELIVERY_COMPLETED_EVC);
 
         Future.all(List.of(
-                createDeliveryRequests.init(this::scheduleDelivery),
-                startDeliveryRequests.init(this::startDelivery),
-                completeDeliveryRequests.init(this::completeDelivery),
+                orderConfirmed.init(this::scheduleDelivery),
                 getDeliveryRequests.init(this::getDelivery),
                 dronePositionReports.init(this::updateDronePosition),
                 droneAssigned.init(this::assignDrone),
@@ -126,29 +103,32 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     }
 
     private InputEventChannel input(String channel) {
-        return new InputEventChannel(vertx, channel, evChannelsLocation, CONSUMER_GROUP);
+        return new InputEventChannel(vertx, channel, evChannelsLocation, consumerGroup);
     }
 
     private OutputEventChannel output(String channel) {
         return new OutputEventChannel(vertx, channel, evChannelsLocation);
     }
 
-    private void scheduleDelivery(JsonObject request) {
-        var requestId = request.getString("requestId");
-        logger.log(Level.INFO, "ScheduleDelivery request - " + requestId);
+    /**
+     * Reacts to a confirmed order by scheduling its delivery. Nobody is waiting for an outcome,
+     * so a rejection has no channel to travel on and is only recorded.
+     */
+    private void scheduleDelivery(JsonObject fact) {
+        var orderId = fact.getString("orderId");
+        logger.log(Level.INFO, "OrderConfirmed - scheduling the delivery of order " + orderId);
         try {
             var delivery = deliveryService.scheduleDelivery(
-                required(request, "orderId"),
-                requiredDouble(request, "pickupLat"),
-                requiredDouble(request, "pickupLng"),
-                requiredDouble(request, "deliveryLat"),
-                requiredDouble(request, "deliveryLng"),
-                requiredDouble(request, "weightKg"));
+                required(fact, "orderId"),
+                requiredDouble(fact, "pickupLat"),
+                requiredDouble(fact, "pickupLng"),
+                requiredDouble(fact, "deliveryLat"),
+                requiredDouble(fact, "deliveryLng"),
+                requiredDouble(fact, "weightKg"));
 
-            approve(createDeliveryRequestsApproved, requestId, delivery);
             announce(delivery);
         } catch (Exception e) {
-            reject(createDeliveryRequestsRejected, requestId, e.getMessage());
+            logger.log(Level.WARNING, "OrderConfirmed discarded for order " + orderId + " - " + e.getMessage());
         }
     }
 
@@ -168,32 +148,6 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
             throw new IllegalArgumentException("missing or not numeric field: " + field);
         }
         return value;
-    }
-
-    private void startDelivery(JsonObject request) {
-        var requestId = request.getString("requestId");
-        logger.log(Level.INFO, "StartDelivery request - " + requestId);
-        try {
-            var delivery = deliveryService.startDelivery(new DeliveryId(required(request, "deliveryId")));
-            approve(startDeliveryRequestsApproved, requestId, delivery);
-        } catch (Exception e) {
-            reject(startDeliveryRequestsRejected, requestId, e.getMessage());
-        }
-    }
-
-    private void completeDelivery(JsonObject request) {
-        var requestId = request.getString("requestId");
-        logger.log(Level.INFO, "CompleteDelivery request - " + requestId);
-        try {
-            var delivery = deliveryService.completeDelivery(new DeliveryId(required(request, "deliveryId")));
-            approve(completeDeliveryRequestsApproved, requestId, delivery);
-            deliveryCompleted.postEvent(delivery.getId().value(), new JsonObject()
-                .put("deliveryId", delivery.getId().value())
-                .put("orderId", delivery.orderId())
-                .put("droneId", delivery.droneId()));
-        } catch (Exception e) {
-            reject(completeDeliveryRequestsRejected, requestId, e.getMessage());
-        }
     }
 
     /** The fleet answered the announced delivery with a drone. */

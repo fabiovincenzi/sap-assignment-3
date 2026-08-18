@@ -28,14 +28,13 @@ public class DroneServiceLauncher extends AbstractVerticle {
 
         var service = buildService();
         startMetrics(service);
+        reportOnChannels(service);
         startEventChannels(service);
         startHttpEndpoints(service);
     }
 
     private DroneService buildService() {
-        var repository = new InMemoryDroneRepository();
-        var deliveryProxy = new DeliveryServiceEventBasedProxy(vertx, EV_CHANNELS_LOCATION);
-        return new DroneService(repository, deliveryProxy);
+        return new DroneService(new InMemoryDroneRepository());
     }
 
     private void startMetrics(DroneService service) {
@@ -45,6 +44,11 @@ public class DroneServiceLauncher extends AbstractVerticle {
         } catch (ObsMetricServerException e) {
             logger.log(Level.SEVERE, "Failed to start Prometheus metrics server - " + e.getMessage());
         }
+    }
+
+    // the report leaves through the same mechanism as the metrics: an observer
+    private void reportOnChannels(DroneService service) {
+        service.addObserver(new KafkaDroneServiceObserver(vertx, EV_CHANNELS_LOCATION));
     }
 
     private void startEventChannels(DroneService service) {
