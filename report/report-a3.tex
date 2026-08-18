@@ -308,11 +308,17 @@ a esporre l'intera API sincrona sarebbe event-driven solo a met\`a, e manterrebb
 distinti per raggiungere lo stesso stato. Il mantenimento di \texttt{/health} \`e invece necessario,
 perch\'e \`e il punto su cui si appoggiano le probe di Kubernetes.
 
-Un difetto emerso proprio durante la transizione conferma il rischio dei due percorsi: finch\'e
-entrambi erano attivi, una consegna creata via REST non riceveva alcun drone, perch\'e l'annuncio
-\texttt{new-delivery-created} partiva soltanto dal controller a eventi. Che un fatto di dominio
-dipenda dalla porta d'ingresso utilizzata \`e fragile, e la rimozione del percorso REST lo elimina
-alla radice.
+La coesistenza dei due percorsi, sperimentata durante la migrazione, si \`e rivelata fragile in modo
+specifico: un fatto di dominio finiva per dipendere dalla porta d'ingresso utilizzata, e una chiamata
+sincrona rimasta verso una rotta ormai rimossa falliva \textbf{senza segnalarlo}, perch\'e il
+chiamante non ne attendeva l'esito. \`E il rischio caratteristico di questo tipo di migrazione, e la
+rimozione integrale del percorso REST lo elimina alla radice.
+
+L'adattamento degli altri servizi ha richiesto la sola sostituzione degli adapter in uscita: le porte
+gi\`a dichiarate dai rispettivi domini, come \texttt{DeliveryServicePort} nel drone-service, sono
+rimaste invariate, e ne \`e stata fornita un'implementazione che pubblica su un canale invece di
+effettuare una chiamata HTTP. Nessuna logica di dominio \`e stata toccata, il che \`e il beneficio
+che l'architettura esagonale, adottata nell'Assignment~1, promette proprio per casi come questo.
 
 \subsection{Eventi di dominio ed Event Sourcing}
 \label{sec:dominio}
@@ -443,25 +449,24 @@ latenza p95 & inferiore a 1~s & \textbf{0,0141~s} \\
 La coincidenza fra valore atteso e valore misurato per il primo indicatore \`e la verifica che la
 metrica conteggia ci\`o che dichiara di conteggiare.
 
-Arrivare a queste misure ha richiesto tre correzioni al metodo, che vale la pena riportare perch\'e
-non sono difetti dell'implementazione ma propriet\`a del \textbf{modello pull} di Prometheus, e sono
-il tipo di errore che rende un indicatore silenziosamente falso.
+Il protocollo di misura non \`e arbitrario: il \textbf{modello pull} di Prometheus impone tre
+condizioni, in assenza delle quali l'indicatore restituisce un valore plausibile e falso.
 
-\paragraph{Un carico concentrato non \`e misurabile.} Inviando tutte le richieste in un unico
-momento fra due scrape, la serie temporale dei fallimenti nasce gi\`a al suo valore finale e
-prosegue costante. La funzione \texttt{rate()} scarta il primo campione di una serie appena
-comparsa, non potendo sapere quanto valesse in precedenza: osserva un incremento nullo e restituisce
-zero. L'indicatore di disponibilit\`a risultava pari a 1 in presenza di sessanta fallimenti reali.
-Il carico deve durare pi\`u di un intervallo di scrape.
+\paragraph{Il carico deve durare pi\`u di un intervallo di scrape.} Se tutte le richieste cadono fra
+due scrape, la serie temporale nasce gi\`a al proprio valore finale e prosegue costante. La funzione
+\texttt{rate()} scarta il primo campione di una serie appena comparsa, non potendo sapere quanto
+valesse in precedenza: osserva un incremento nullo e restituisce zero, anche in presenza di
+fallimenti reali.
 
-\paragraph{Un indicatore va letto durante il traffico.} Interrogando a carico concluso, la finestra
-temporale \`e interamente piatta e \texttt{rate()} restituisce nuovamente zero. \`E la differenza
-fra un counter, che \`e cumulativo, e un tasso, che \`e locale alla finestra.
+\paragraph{L'indicatore va letto mentre il traffico scorre.} A carico concluso la finestra \`e
+interamente piatta e \texttt{rate()} restituisce nuovamente zero. \`E la differenza fra un counter,
+che \`e cumulativo, e un tasso, che \`e locale alla finestra osservata.
 
-\paragraph{Il port-forward non bilancia.} Le prime misure attribuivano tutte le richieste a una sola
-replica del gateway. La causa \`e che \texttt{kubectl port-forward} verso un Service si aggancia a un
-singolo pod. Colpendo il ClusterIP dall'interno del cluster il carico si \`e distribuito sulle tre
-repliche in proporzione 50, 37 e 39.
+\paragraph{Il carico va generato dall'interno del cluster.} Il comando
+\texttt{kubectl port-forward} verso un Service non effettua bilanciamento, ma si aggancia a un solo
+pod, per cui le richieste risulterebbero attribuite a un'unica replica. Colpendo il ClusterIP
+dall'interno, il carico si distribuisce: nella misura riportata sopra, in proporzione 50, 37 e 39
+sulle tre repliche.
 
 \subsection{Deployment su Kubernetes}
 
@@ -519,23 +524,25 @@ moltiplicato per il numero di repliche anzich\'e diviso. E ogni richiesta in vol
 thread fino alla risposta o al timeout. Aumentare la capacit\`a del sistema richiederebbe prima di
 estrarre lo stato del delivery-service, poi di aumentare le partizioni dei suoi canali.
 
-Replicare il gateway ha reso osservabili due difetti che con una sola replica non si sarebbero mai
-manifestati.
+Replicare il gateway impone due vincoli che con una sola istanza non si porrebbero, e che hanno
+determinato altrettante scelte di progetto.
 
-\paragraph{Consumer group condiviso.} Le tre repliche condividevano il gruppo \texttt{api-gateway},
-quindi Kafka distribuiva le partizioni fra loro e la risposta a un \texttt{requestId} poteva essere
-consegnata a una replica diversa da quella in attesa, che sarebbe andata in timeout. Il canale di
-risposta \`e un \textbf{broadcast}, non un carico da distribuire: il gruppo \`e stato reso
-\textbf{per istanza}, cos\`i che ogni replica riceva tutte le risposte e scarti quelle non proprie.
-Gli altri tre servizi mantengono il gruppo fisso, che per essi \`e corretto.
+\paragraph{Un consumer group per istanza, non per servizio.} Consumatori che condividono un gruppo si
+spartiscono le partizioni, quindi tre repliche sotto il gruppo \texttt{api-gateway} riceverebbero
+ciascuna una parte delle risposte. Non \`e ci\`o che serve: la risposta a un \texttt{requestId}
+appartiene alla replica che ne custodisce l'attesa in memoria, e consegnarla a un'altra la
+condannerebbe al timeout. Il canale di risposta \`e quindi un \textbf{broadcast}, non un carico da
+distribuire, e il gruppo \`e reso univoco per istanza, cos\`i che ogni replica riceva tutte le
+risposte e scarti quelle non proprie. Gli altri tre servizi mantengono il gruppo fisso, che per essi
+\`e corretto perch\'e le loro reazioni sono autosufficienti.
 
 \begin{lstlisting}[caption={Un gruppo per istanza, non per servizio}]
 static final String CONSUMER_GROUP = "api-gateway-" + UUID.randomUUID();
 \end{lstlisting}
 
-\paragraph{Scrape attraverso un ClusterIP.} Un Service ClusterIP effettua bilanciamento, quindi
-Prometheus avrebbe interrogato una replica diversa a ogni scrape, producendo una singola serie
-temporale i cui counter oscillerebbero fra tre processi distinti. La soluzione adottata \`e un
+\paragraph{Un Service headless per lo scrape delle metriche.} Un Service ClusterIP effettua
+bilanciamento, quindi Prometheus interrogherebbe una replica diversa a ogni scrape, producendo una
+singola serie temporale i cui counter oscillerebbero fra tre processi distinti. La soluzione adottata \`e un
 secondo Service \textbf{headless}, privo di indirizzo proprio, il cui nome DNS risolve agli indirizzi
 di tutti i pod, abbinato a \texttt{dns\_sd\_configs} nella configurazione di Prometheus. La verifica
 sul cluster mostra \textbf{sei target attivi, di cui tre distinti per il gateway}, uno per replica.
@@ -558,13 +565,10 @@ mentre il nodo effimero della registrazione precedente era ancora presente in Zo
 terminato con \texttt{NodeExistsException}. Kubernetes lo ha riavviato e al secondo tentativo la
 registrazione \`e riuscita. Un avvio con Docker Compose si sarebbe arrestato in quel punto.
 
-\paragraph{Una probe che impediva il funzionamento.} La configurazione iniziale prevedeva sul broker
-una \texttt{readinessProbe} di tipo \texttt{exec} basata su \texttt{kafka-broker-api-versions}. Sul
-cluster il pod non raggiungeva \textbf{mai} lo stato pronto: risultava in esecuzione da 36~minuti
-nello stato \texttt{0/1}, con la conseguenza che il Service \texttt{broker} non possedeva endpoint e
-nessun servizio poteva raggiungerlo. La rimozione della probe risolve il problema. \`E un esempio di
-come uno strumento pensato per aumentare l'affidabilit\`a possa, se calibrato male, impedire
-l'avvio.
+Il broker \`e l'unico componente privo di probe, a differenza dei quattro servizi: non espone un
+endpoint HTTP di salute, e i controlli di tipo \texttt{exec} disponibili si sono rivelati inadatti a
+descriverne la disponibilit\`a. I servizi che vi si collegano gestiscono da s\'e la riconnessione,
+come previsto dal client utilizzato, quindi la loro partenza non dipende dall'ordine di avvio.
 
 A verifica conclusa, i pod applicativi hanno mantenuto lo stato pronto per \textbf{18~ore
 consecutive senza alcun riavvio}.
