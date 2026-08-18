@@ -5,23 +5,18 @@ import java.util.logging.Logger;
 
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
+import sap.shipping.delivery.application.DeliveryService;
 import sap.shipping.delivery.application.DeliveryServiceImpl;
-;
 
 public class DeliveryServiceLauncher extends AbstractVerticle {
 
     static Logger logger = Logger.getLogger("[Delivery Service]");
 
+    // Only /health is served here: the domain is reached through the event channels.
     private static final int PORT = 8091;
     private static final int METRICS_PORT = 9491;
 
-    /* Externalized configuration: defaults target a manual local deployment,
-       the docker-compose file overrides them with the service container names. */
-    private static final String DRONE_HOST = env("DRONE_HOST", "localhost");
-    private static final int DRONE_PORT = Integer.parseInt(env("DRONE_PORT", "8092"));
-    private static final String ORDER_HOST = env("ORDER_HOST", "localhost");
-    private static final int ORDER_PORT = Integer.parseInt(env("ORDER_PORT", "8090"));
-    /* the host listener of the broker, overridden with the internal one inside compose */
+    // Externalized Configuration: the default runs on the host, compose and Kubernetes set broker:9092
     private static final String EV_CHANNELS_LOCATION = env("EV_CHANNELS_LOCATION", "localhost:29092");
 
     private static String env(String name, String defaultValue) {
@@ -32,23 +27,40 @@ public class DeliveryServiceLauncher extends AbstractVerticle {
     @Override
     public void start() {
         logger.log(Level.INFO, "Delivery Service initializing...");
-        var publisher = new KafkaDeliveryEventPublisher(vertx, EV_CHANNELS_LOCATION);
-        var repo = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(),
-            new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView(), publisher);
-        var service = new DeliveryServiceImpl(repo);
-        var controller = new DeliveryController();
 
+        var service = buildService();
+        startMetrics(service);
+        startEventChannels(service);
+        startHealthEndpoint();
+    }
+
+    // the only place where the concrete adapters meet the core, which declares just its ports
+    private DeliveryService buildService() {
+        var eventStore = new InMemoryDeliveryEventStore();
+        var snapshotStore = new InMemoryDeliverySnapshotStore();
+        var lookupView = new InMemoryDeliveryLookupView();
+        var publisher = new KafkaDeliveryEventPublisher(vertx, EV_CHANNELS_LOCATION);
+
+        var repo = new EventSourcedDeliveryRepository(eventStore, snapshotStore, lookupView, publisher);
+        return new DeliveryServiceImpl(repo);
+    }
+
+    private void startMetrics(DeliveryService service) {
         try {
             service.addObserver(new PrometheusDeliveryServiceObserver(METRICS_PORT));
             logger.log(Level.INFO, "Prometheus metrics server ready - port: " + METRICS_PORT);
         } catch (ObsMetricServerException e) {
             logger.log(Level.SEVERE, "Failed to start Prometheus metrics server - " + e.getMessage());
         }
+    }
 
+    private void startEventChannels(DeliveryService service) {
         vertx.deployVerticle(new DeliveryServiceEventBasedController(service, EV_CHANNELS_LOCATION));
+    }
 
+    private void startHealthEndpoint() {
         vertx.createHttpServer()
-            .requestHandler(controller.createRouter(vertx))
+            .requestHandler(new DeliveryController().createRouter(vertx))
             .listen(PORT)
             .onSuccess(s -> logger.log(Level.INFO, "Delivery Service ready - port: " + PORT))
             .onFailure(err -> {

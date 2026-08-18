@@ -89,10 +89,6 @@ services:
       - 8091
       - 9491
     environment:
-      - DRONE_HOST=drone-service
-      - DRONE_PORT=8092
-      - ORDER_HOST=order-service
-      - ORDER_PORT=8090
       - EV_CHANNELS_LOCATION=broker:9092
     depends_on:
       broker:

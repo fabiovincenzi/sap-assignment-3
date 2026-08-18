@@ -29,14 +29,7 @@ spec:
             - containerPort: 8091
             - containerPort: 9491
           env:
-            - name: DRONE_HOST
-              value: "drone-service"
-            - name: DRONE_PORT
-              value: "8092"
-            - name: ORDER_HOST
-              value: "order-service"
-            - name: ORDER_PORT
-              value: "8090"
+            # the only address it needs: it reaches nobody directly, it publishes and listens
             - name: EV_CHANNELS_LOCATION
               value: "broker:9092"
           # liveness kills and replaces, readiness only takes the pod out of the Service:
