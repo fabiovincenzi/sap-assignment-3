@@ -34,20 +34,16 @@ fallimento dal punto di vista dell'utente, che non ottiene cio' che ha chiesto.
 Le chiamate a `/health` sono **escluse** dal conteggio: sono interrogazioni della piattaforma, non
 traffico di clienti, e includerle falserebbe l'indicatore.
 
-## SLO 2: latenza
+## SLO 2: throughput
 
-> Il **95esimo percentile** del tempo di risposta dell'API Gateway deve restare sotto **1 secondo**.
+> L'API Gateway deve sostenere piu' di **40 richieste al secondo**, su una finestra mobile di
+> **30 giorni**.
 
-**SLI**: 95esimo percentile della durata delle richieste, calcolato dai bucket dell'istogramma.
+**SLI**: numero di richieste servite al secondo.
 
-La soglia di 1 secondo e' ereditata dallo scenario di performance formulato nell'Assignment 1. Nel
-report dell'Assignment 2 quello scenario era stato dichiarato **non verificabile**, perche' le
-metriche disponibili erano solo counter e gauge: dicevano quante richieste erano state servite, non
-quanto tempo avessero impiegato. L'istogramma introdotto in A3 chiude quel limite.
-
-Si usa il percentile e non la media perche', come osservano le Lab Notes, *"average response times
-can be misleading, especially in systems with high variability"*: una media bassa puo' nascondere una
-minoranza di richieste molto lente, che sono proprio quelle che gli utenti notano.
+L'obiettivo si aggancia allo scenario di **scalabilita'** formulato nell'Assignment 1 (QAS-4), che
+chiede che un raddoppio del volume di ordini non produca degrado: un livello di throughput
+dichiarato e' il modo di renderlo un impegno misurabile e non una previsione.
 
 ## Le metriche che li alimentano
 
@@ -55,40 +51,39 @@ Esposte dall'API Gateway sulla porta dedicata `9492`, endpoint `/metrics`.
 
 | Metrica | Tipo | Contenuto |
 |---|---|---|
-| `gateway_requests_total{outcome="success\|error"}` | counter con label | richieste servite, separate per esito |
-| `gateway_request_duration_seconds` | **histogram** | distribuzione dei tempi di risposta |
+| `gateway_requests_total` | counter | richieste servite |
+| `gateway_successful_requests_total` | counter | quelle con status inferiore a 400 |
+| `gateway_response_time_seconds_total` | counter | tempo di risposta accumulato |
 
 Scelte di design:
 
-- **Una sola label, `outcome`.** Si era valutato di aggiungere il path della richiesta, ma le rotte
-  contengono identificatori (`/api/v1/orders/{id}`): usarli come valori di label farebbe crescere
-  senza limite il numero di serie temporali, problema noto come esplosione della **cardinalita'**.
-  Gli indicatori definiti qui non ne hanno bisogno.
-- **Bucket dell'istogramma**: `0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10` secondi. Il bound
-  esatto a **1 secondo** e' deliberato: e' la soglia contro cui e' enunciato lo SLO 2, e
-  `histogram_quantile` interpola fra i bucket, quindi e' tanto piu' preciso quanto piu' un bound cade
-  sul valore di interesse.
+- **Nessuna label.** Si era valutato di distinguere le metriche per path, ma le rotte contengono
+  identificatori (`/api/v1/orders/{id}`): usarli come valori di label farebbe crescere senza limite
+  il numero di serie temporali. Gli indicatori definiti qui non ne hanno bisogno.
+- **Due counter separati** per totale e successi, invece di uno solo con una label di esito: il
+  rapporto fra i due e' direttamente lo SLI di disponibilita'.
 - **Misura a fine risposta**, tramite `addBodyEndHandler`: e' l'unico momento in cui lo status code e'
   gia' determinato e la risposta e' stata effettivamente scritta.
+- Il **tempo accumulato** non alimenta alcuno SLO: diviso per il numero di richieste da il tempo
+  medio di risposta, utile come metrica di osservabilita'.
 
 ## Query PromQL
 
 **SLI 1, disponibilita':**
 
 ```promql
-sum(rate(gateway_requests_total{outcome="success"}[30d]))
+sum(increase(gateway_successful_requests_total[30d]))
   /
+sum(increase(gateway_requests_total[30d]))
+```
+
+**SLI 2, throughput:**
+
+```promql
 sum(rate(gateway_requests_total[30d]))
 ```
 
-**SLI 2, latenza al 95esimo percentile:**
-
-```promql
-histogram_quantile(0.95, sum(rate(gateway_request_duration_seconds_bucket[5m])) by (le))
-```
-
-Nota che anche i bucket di un istogramma **sono counter**, quindi vanno letti con `rate()` e non nel
-loro valore assoluto. La label `le` (*less or equal*) e' quella dei bucket.
+Entrambe sommano su tutte le repliche del gateway prima di calcolare il rapporto o il tasso.
 
 ## Error budget
 
@@ -117,11 +112,17 @@ avviato per la durata delle prove, quindi Prometheus non possiede quella storia.
 automatica usa una finestra di **5 minuti**: cambia l'ampiezza del campione, non la forma
 dell'indicatore.
 
-**L'obiettivo di latenza e' ampio rispetto ai valori osservati.** Una misura su richieste di tracking
-ha dato circa **35 ms** per richiesta, cioe' quasi trenta volte sotto la soglia. La soglia e' stata
-mantenuta a 1 secondo perche' proviene dal quality attribute dichiarato nell'Assignment 1, ma il
-margine va riportato: un obiettivo largo dichiarato insieme al suo margine e' informativo, un
-obiettivo largo presentato da solo sembra scelto per non essere mai violato.
+**Il throughput misura il carico ricevuto, non la capacita' offerta.** L'indicatore riporta quante
+richieste il sistema ha effettivamente servito, che dipende da quante ne arrivano: in assenza di
+traffico risulta basso pur essendo il servizio perfettamente sano. Verificare la capacita' richiede
+un carico generato apposta, come nella prova riportata piu' avanti, non l'osservazione del traffico
+spontaneo.
+
+**La latenza resta non misurata.** Il quality attribute di performance dell'Assignment 1, tracking
+sotto il secondo, richiederebbe un istogramma delle durate da cui ricavare i percentili: il tempo
+accumulato qui esposto permette solo di calcolare una media, che in presenza di alta variabilita'
+puo' nascondere una minoranza di richieste lente. Il limite gia' dichiarato nell'Assignment 2 resta
+quindi aperto.
 
 **Lo SLI di disponibilita' ha un punto cieco.** Conta le richieste **a cui il gateway ha risposto**:
 se il gateway fosse spento, numeratore e denominatore resterebbero entrambi fermi e il rapporto

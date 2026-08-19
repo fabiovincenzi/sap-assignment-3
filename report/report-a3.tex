@@ -66,21 +66,12 @@ Il dominio non cambia. Restano \texttt{order-service}, \texttt{delivery-service}
 \texttt{drone-service} e l'\texttt{api-gateway}. Cambia il modo in cui i servizi si coordinano, il
 modo in cui il sistema viene misurato e la piattaforma su cui viene eseguito.
 
-Il terzo punto della consegna, di natura opzionale, riguardante la riprogettazione ad agenti del
-software autonomo che controlla il drone, non \`e stato affrontato: il lavoro si concentra sui due
-punti obbligatori.
-
-Come nell'Assignment~2, ogni scelta \`e presentata indicando il problema che risolve, la soluzione
-adottata e le conseguenze, incluse quelle negative, e le affermazioni sono accompagnate, dove
-possibile, da misure raccolte sul sistema in esecuzione.
-
 % ============================================================
 \section{Event-driven Architecture}
 
 \subsection{Scelta del candidato}
 
-La consegna chiede di riprogettare \emph{un} microservizio, quello ritenuto il miglior candidato. La
-scelta \`e caduta sul \textbf{delivery-service}, per tre ragioni di peso crescente.
+La scelta \`e caduta sul \textbf{delivery-service}, per tre ragioni.
 
 La prima \`e di posizione: il delivery-service \`e il nodo centrale del sistema. Riceve una richiesta
 dall'order-service quando un ordine viene confermato, si rivolge al drone-service per ottenere un
@@ -103,7 +94,7 @@ che la sezione~\ref{sec:dominio} riprende.
 Nell'Assignment~2 la creazione di una consegna era \textbf{orchestrata}: un componente conosceva
 l'intera sequenza e la eseguiva chiamando gli altri.
 
-\begin{lstlisting}[caption={Assignment 2: il servizio chiama la flotta e attende}]
+\begin{lstlisting}[caption={Assignment 2: il servizio chiama il drone-service e attende}]
 var droneId = droneService.requestAvailableDrone(pickupLat, pickupLng, weightKg);
 if (droneId.isPresent()) {
     delivery.assignDrone(droneId.get());
@@ -111,8 +102,8 @@ if (droneId.isPresent()) {
 }
 \end{lstlisting}
 
-Questo codice non esiste pi\`u. Al suo posto il servizio registra il fatto e prosegue; chi possiede
-la flotta se ne accorge e risponde di propria iniziativa. Il coordinamento non \`e pi\`u scritto in
+Questo codice non esiste pi\`u. Al suo posto il servizio registra il fatto e prosegue; il
+drone-service se ne accorge e risponde di propria iniziativa. Il coordinamento non \`e pi\`u scritto in
 un punto, ma emerge dalle reazioni: \`e una \textbf{coreografia}.
 
 La conseguenza si legge in una sola riga, il costruttore dell'application service:
@@ -129,7 +120,7 @@ public DeliveryServiceImpl(DeliveryRepository repository)
 
 Il delivery-service non conosce pi\`u l'esistenza degli altri servizi. Prima li dichiarava come
 dipendenze; ora sa soltanto produrre fatti. Al loro posto \`e comparso il metodo
-\texttt{assignDrone(DeliveryId, String)}, che \`e la porta d'ingresso per la risposta della flotta.
+\texttt{assignDrone(DeliveryId, String)}, che \`e la porta d'ingresso per la risposta del drone-service.
 
 La sequenza completa \`e riportata nella tabella~\ref{tab:coreografia}.
 
@@ -146,7 +137,6 @@ La sequenza completa \`e riportata nella tabella~\ref{tab:coreografia}.
 3 & delivery-service & reagisce al fatto creando la consegna in stato \texttt{SCHEDULED}, e ne annuncia la nascita su \texttt{new-delivery-created} \\
 4 & drone-service & reagisce all'annuncio e pubblica \texttt{drone-assigned} oppure \texttt{drone-unavailable} \\
 5 & delivery-service & riceve l'assegnazione e la consegna passa a \texttt{DRONE\_ASSIGNED} \\
-6 & drone-service & riferisce le proprie posizioni su \texttt{drone-position-reports}, che alimentano il tracking \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -165,8 +155,8 @@ strutturale dell'architettura a eventi.
 
 \subsection{Lo strato dei canali}
 
-L'astrazione adottata \`e quella del laboratorio: un \emph{event channel} corrisponde a un topic
-Kafka omonimo. Nel modulo \texttt{common} sono state introdotte tre classi.
+Un \emph{event channel} corrisponde a un topic
+Kafka omonimo. Nel modulo \texttt{common} sono state introdotte due classi.
 
 \begin{table}[H]
 \centering
@@ -177,13 +167,9 @@ Kafka omonimo. Nel modulo \texttt{common} sono state introdotte tre classi.
 \midrule
 \texttt{OutputEventChannel} & pubblica un \texttt{JsonObject}, incapsulando un \texttt{KafkaProducer} \\
 \texttt{InputEventChannel} & sottoscrive un canale e invoca un handler per ogni evento \\
-\texttt{EventChannelsAdmin} & cancella i canali, usato per ripulire fra un test e l'altro \\
 \bottomrule
 \end{tabularx}
 \end{table}
-
-Rispetto alla versione minimale vista in laboratorio sono state introdotte due parametrizzazioni,
-entrambe necessarie in un sistema con pi\`u di un servizio.
 
 \paragraph{La chiave di partizione.} Un topic Kafka \`e diviso in partizioni e l'ordinamento \`e
 garantito solo \emph{all'interno} di una partizione; i record privi di chiave vengono distribuiti su
@@ -200,9 +186,13 @@ public Future<Void> postEvent(String key, JsonObject event) {
 \paragraph{Il consumer group.} \`E il parametro che distingue due comportamenti opposti espressi
 dallo stesso meccanismo. Kafka non elimina un messaggio quando viene letto: mantiene un
 \emph{offset}, cio\`e un segnalibro, per ogni combinazione di gruppo, topic e partizione, e
-all'interno di un gruppo ciascuna partizione ha un solo proprietario. Consumatori in gruppi
-\textbf{diversi} ricevono quindi ognuno l'intero flusso, mentre consumatori nello \textbf{stesso}
-gruppo se lo dividono.
+all'interno di un gruppo ciascuna partizione ha un solo proprietario. Ne segue che consumatori in
+gruppi \textbf{diversi} ricevono ognuno l'intero flusso, mentre consumatori nello \textbf{stesso}
+gruppo se lo dividono in parti disgiunte: dentro un gruppo nessun messaggio \`e mai consegnato due
+volte.
+
+Entrambe le regole sono state verificate sul broker del cluster, pubblicando tre messaggi su un
+topic con una sola partizione e rileggendolo cinque volte al variare del gruppo.
 
 \begin{table}[H]
 \centering
@@ -221,14 +211,15 @@ gruppo C, consumatore 2 & 0 & stessa partizione, ma non gli appartiene \\
 \end{tabularx}
 \end{table}
 
-L'ultima riga della tabella~\ref{tab:gruppi} chiarisce un punto che si presta a fraintendimenti: i
-messaggi non ricevuti non erano stati distrutti, tant'\`e che il gruppo B li ha letti subito dopo.
-Semplicemente non erano stati \emph{consegnati} a quel consumatore. Nel sistema ogni servizio usa
-quindi un gruppo distinto: due servizi che condividessero il gruppo su un canale di interesse
-comune si sottrarrebbero gli eventi a vicenda, ciascuno vedendone solo una parte.
+Che il gruppo B rilegga tutto dimostra che la lettura \textbf{non consuma}: ad avanzare era stata
+solo la posizione di A. E il secondo consumatore del gruppo C non riceve nulla non perch\'e i
+messaggi siano stati distrutti o sottratti dal collega, ma perch\'e l'unica partizione era gi\`a
+assegnata all'altro membro del suo gruppo.
 
-Ne discende anche il limite al parallelismo: aggiungere consumatori a un gruppo non aumenta la
-capacit\`a oltre il numero di partizioni, perch\'e i consumatori eccedenti restano inattivi.
+Da qui due conseguenze. Ogni servizio usa un \textbf{gruppo distinto}: condividerlo produrrebbe un
+guasto parziale e silenzioso, con ciascuno dei due che vede solo met\`a degli eventi di interesse
+comune. E il numero di partizioni \`e il \textbf{tetto ai consumatori utilmente attivi} di un
+gruppo: la capacit\`a si aumenta ripartizionando il topic, non moltiplicando i consumatori.
 
 Infine, i consumatori sono configurati con \texttt{auto.offset.reset: earliest}: un gruppo privo di
 segnalibro parte dall'inizio del log anzich\'e dal presente. \`E la propriet\`a per cui un servizio
@@ -237,8 +228,8 @@ riavviato recupera da s\'e gli eventi persi durante l'assenza.
 \subsection{Request/reply su un bus di eventi}
 
 Un canale di eventi non possiede il concetto di risposta, che HTTP fornisce nativamente. Il pattern
-adottato, quello del laboratorio, \`e di associare a ogni operazione \textbf{tre canali}: uno di
-richiesta e due di esito, che trasportano l'informazione altrimenti veicolata dal codice di stato.
+adottato associa a ogni operazione \textbf{tre canali}: uno di richiesta e due di esito, che
+trasportano l'informazione altrimenti veicolata dal codice di stato.
 
 \begin{lstlisting}[caption={La terna di canali per l'interrogazione di una consegna}]
 get-delivery-requests             richiesta
@@ -272,14 +263,9 @@ porta all'interno di \texttt{executeBlocking}, quindi fuori dall'event loop. Va 
 \emph{rejection} non \`e un errore del sistema: \`e il modo in cui l'informazione ``nessuna consegna
 per questo ordine'' viaggia su un canale, e viene ritradotta in un \texttt{Optional.empty()}.
 
-Questo componente \`e l'unica parte in cui il codice si spinge oltre l'esempio del laboratorio, che
-pubblica la richiesta senza sottoscrivere i canali di esito e lascia il completamento come esercizio.
-
-\paragraph{Validazione.} Con HTTP un corpo malformato veniva intercettato dal \texttt{BodyHandler} e
-tradotto in un 400. Un evento \`e JSON privo di schema, quindi un campo mancante emergerebbe come
-dereferenziazione nulla all'interno della logica applicativa, e il messaggio dell'eccezione
-finirebbe nel canale di rifiuto. Sono stati quindi introdotti due validatori espliciti che
-producono un rifiuto leggibile, per esempio \texttt{missing or not numeric field: pickupLat}.
+\paragraph{Validazione.} Il controllo che con HTTP faceva il \texttt{BodyHandler} qui non esiste:
+un evento \`e JSON privo di schema. Due validatori espliciti lo intercettano prima, producendo un rifiuto
+leggibile come \texttt{missing or not numeric field: pickupLat}.
 
 \subsection{Il confine dell'architettura a eventi}
 
@@ -294,25 +280,16 @@ come segue.
 \toprule
 \textbf{Servizio} & \textbf{Adattamento} \\
 \midrule
-delivery-service & interamente a eventi. Dell'API REST resta il solo \texttt{/health}, e il controller passa da circa 190 a 45 righe \\
-api-gateway & mantiene l'API REST verso l'esterno; internamente sostituisce il proxy HTTP con uno a canali \\
+delivery-service & interamente a eventi. Dell'API REST resta il solo \texttt{/health}\\
+api-gateway & mantiene l'API REST verso l'esterno e i proxy HTTP verso order e drone; solo quello verso il delivery diventa a canali \\
 order-service & mantiene la propria architettura. Annuncia \texttt{order-confirmed} attraverso un observer \\
 drone-service & mantiene la propria architettura. Reagisce a \texttt{new-delivery-created} e riferisce le posizioni \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-La scelta di privare il delivery-service dell'API REST, invece di adottare una soluzione ibrida con
-comandi su canali e interrogazioni in HTTP, \`e motivata dalla coerenza: un servizio che continuasse
-a esporre l'intera API sincrona sarebbe event-driven solo a met\`a, e manterrebbe due percorsi
-distinti per raggiungere lo stesso stato. Il mantenimento di \texttt{/health} \`e invece necessario,
+Il mantenimento di \texttt{/health} \`e necessario,
 perch\'e \`e il punto su cui si appoggiano le probe di Kubernetes.
-
-La coesistenza dei due percorsi, sperimentata durante la migrazione, si \`e rivelata fragile in modo
-specifico: un fatto di dominio finiva per dipendere dalla porta d'ingresso utilizzata, e una chiamata
-sincrona rimasta verso una rotta ormai rimossa falliva \textbf{senza segnalarlo}, perch\'e il
-chiamante non ne attendeva l'esito. \`E il rischio caratteristico di questo tipo di migrazione, e la
-rimozione integrale del percorso REST lo elimina alla radice.
 
 L'adattamento degli altri servizi ha richiesto la sola sostituzione degli adapter in uscita: le porte
 gi\`a dichiarate dai rispettivi domini, come \texttt{DeliveryServicePort} nel drone-service, sono
@@ -334,8 +311,7 @@ proxy.
 
 Un \textbf{evento} constata un fatto avvenuto, non ha destinatario e non attende nulla: chi lo
 riceve decide che cosa farne. \`E il caso dell'ordine confermato e della posizione di un drone.
-Modellarli come porte richiederebbe di dichiarare una dipendenza verso nessuno, quindi escono
-attraverso gli \textbf{observer}, lo stesso meccanismo gi\`a usato dall'Assignment~2 per
+Escono  attraverso gli \textbf{observer}, lo stesso meccanismo gi\`a usato dall'Assignment~2 per
 l'osservabilit\`a, con una seconda implementazione che pubblica su un canale.
 
 \begin{lstlisting}[caption={Il servizio annuncia, senza sapere chi ascolta}]
@@ -358,22 +334,32 @@ alimentano il read model attraverso il proiettore.
 newEvents.forEach(event -> projector.project(delivery.getId(), event));
 \end{lstlisting}
 
-Ci\`o che viaggia sui canali \`e invece un sottoinsieme scelto e riformulato per l'esterno, per
-esempio \texttt{new-delivery-created}, il cui payload porta peso e punto di ritiro perch\'e il
-destinatario possa agire senza chiedere altro. La distinzione fra evento di dominio ed evento di
-integrazione \`e deliberata: pubblicare l'intero stream interno legherebbe i consumatori alla
-rappresentazione interna dell'aggregate, e ogni suo cambiamento diventerebbe un cambiamento di
-contratto.
+Ci\`o che viaggia sui canali \`e invece un \textbf{evento di integrazione}: lo stesso fatto,
+riformulato per chi lo riceve. L'evento di dominio \texttt{DeliveryScheduled} porta l'intera
+\texttt{Route} e l'istante di creazione, perch\'e deve bastare a ricostruire l'aggregate nel replay;
+l'annuncio \texttt{new-delivery-created} porta soltanto punto di ritiro e peso, che sono i due dati
+su cui il drone-service decide se ha un mezzo adatto.
+
+La distinzione \`e deliberata, e ha una motivazione precisa: pubblicare gli eventi di dominio cos\`i
+come sono renderebbe il modello interno un \textbf{contratto pubblico}. Rinominare un value object
+o riorganizzare l'aggregate diventerebbe una modifica concordata con tutti i consumatori, e il
+servizio perderebbe la libert\`a di evolvere che il bounded context gli garantisce. Ne segue anche
+un criterio di progetto diverso per i due: un evento di dominio deve contenere quanto basta a
+\emph{ricostruire lo stato}, un evento di integrazione quanto basta ad \emph{agire senza richiamare
+il mittente}.
 
 % ============================================================
 \section{Scaling e Service Levels}
 
 \subsection{SLO e SLI}
 
-Entrambi gli obiettivi sono definiti sull'\textbf{api-gateway}, unico componente esposto
-all'esterno e quindi il punto pi\`u vicino a ci\`o che l'utente percepisce, secondo la
-raccomandazione delle Lab Notes di formulare la disponibilit\`a \emph{in terms of the user
-experience}. Non \`e definito alcun SLA, perch\'e il sistema non ha controparti contrattuali.
+Gli indicatori tipici con cui si esprime un livello di servizio sono disponibilit\`a, latenza,
+tasso di errore, throughput e durabilit\`a. La scelta \`e caduta su \textbf{disponibilit\`a} e
+\textbf{throughput}, i due che si agganciano agli scenari di qualit\`a gi\`a formulati
+nell'Assignment~1: il primo alla continuit\`a del servizio in presenza di guasti, il secondo alla
+scalabilit\`a sotto un volume crescente di ordini. Entrambi sono definiti sull'\textbf{api-gateway},
+unico componente esposto all'esterno e quindi il punto di osservazione pi\`u vicino all'esperienza
+d'uso.
 
 \begin{table}[H]
 \centering
@@ -383,8 +369,8 @@ experience}. Non \`e definito alcun SLA, perch\'e il sistema non ha controparti 
 \textbf{SLO 1} & almeno il 99,5\% delle richieste servito con successo su 30 giorni \\
 \textbf{SLI 1} & percentuale di richieste con status inferiore a 400 sul totale \\
 \midrule
-\textbf{SLO 2} & 95esimo percentile del tempo di risposta inferiore a 1 secondo \\
-\textbf{SLI 2} & percentile calcolato dai bucket dell'istogramma delle durate \\
+\textbf{SLO 2} & piu' di 40 richieste al secondo sostenute su 30 giorni \\
+\textbf{SLI 2} & numero di richieste servite al secondo \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -394,12 +380,9 @@ prodotto quanto atteso. Le chiamate a \texttt{/health} sono invece \textbf{esclu
 sono interrogazioni della piattaforma, ripetute a intervalli fissi e quasi sempre coronate da
 successo, e includerle gonfierebbe l'indicatore con traffico che nessun utente ha generato.
 
-La soglia di 1~secondo \`e ereditata dallo scenario di performance formulato nell'Assignment~1, che
-il report dell'Assignment~2 aveva dovuto dichiarare \textbf{non verificabile}, perch\'e le metriche
-disponibili erano counter e gauge: indicavano quante richieste fossero state servite, non quanto
-tempo avessero impiegato. Si usa il percentile e non la media perch\'e, come osservano le Lab Notes,
-una media bassa pu\`o nascondere una minoranza di richieste molto lente, che sono esattamente quelle
-che gli utenti notano.
+L'obiettivo di throughput si aggancia allo scenario di scalabilit\`a dell'Assignment~1, che chiede
+che un raddoppio del volume di ordini non produca degrado: dichiarare un livello sostenuto lo
+trasforma da previsione in impegno verificabile.
 
 \paragraph{Error budget.} Un obiettivo del 99,5\% dichiara implicitamente che lo 0,5\% pu\`o
 fallire. Su una finestra di 30~giorni, pari a 43.200~minuti, la quota ammessa \`e di
@@ -409,7 +392,8 @@ stabilizzare.
 
 \subsection{Strumentazione}
 
-Le due metriche che alimentano gli indicatori sono esposte dall'api-gateway sulla porta~9492.
+Entrambi gli indicatori si ricavano contando le richieste servite, distinguendo quelle riuscite dal
+totale. Le metriche sono esposte dall'api-gateway sulla porta~9492.
 
 \begin{table}[H]
 \centering
@@ -418,40 +402,37 @@ Le due metriche che alimentano gli indicatori sono esposte dall'api-gateway sull
 \toprule
 \textbf{Metrica} & \textbf{Tipo} & \textbf{Contenuto} \\
 \midrule
-\texttt{gateway\_requests\_total} & counter con label & richieste servite, separate per esito \\
-\texttt{gateway\_request\_duration\_seconds} & histogram & distribuzione dei tempi di risposta \\
+\texttt{gateway\_requests\_total} & counter & richieste servite \\
+\texttt{gateway\_successful\_requests\_total} & counter & quelle con status inferiore a 400 \\
+\texttt{gateway\_response\_time\_seconds\_total} & counter & tempo di risposta accumulato \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-I bucket dell'istogramma sono \texttt{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10} secondi. Il
-bound esatto a 1~secondo \`e deliberato: \texttt{histogram\_quantile} interpola fra i bucket, quindi
-la stima \`e tanto pi\`u accurata quanto pi\`u un bound cade sul valore di interesse, che qui \`e la
-soglia dello SLO.
+I primi due counter sono quanto serve agli indicatori: il loro rapporto \`e la disponibilit\`a, la
+derivata del primo \`e il throughput. Il terzo non alimenta alcun obiettivo, ma diviso per il numero
+di richieste fornisce il tempo medio di risposta, che resta un dato utile a osservare il sistema.
 
-La label \`e una sola, l'esito. Si era valutato di aggiungere il path della richiesta, ma le rotte
-contengono identificatori, e usarli come valori di label farebbe crescere illimitatamente il numero
-di serie temporali, problema noto come esplosione della \textbf{cardinalit\`a}.
-
-La misura avviene a risposta scritta, tramite \texttt{addBodyEndHandler}, che \`e l'unico momento in
-cui lo status code \`e determinato e la durata \`e completa.
+Nessuna metrica porta label. Si era valutato di distinguere le richieste per percorso, ma le rotte
+contengono identificatori di risorsa, e usarli come valori di label farebbe crescere senza limite il
+numero di serie temporali. La misura viene presa quando la risposta \`e stata scritta, unico momento
+in cui sia lo status code sia la durata sono definitivi.
 
 \begin{lstlisting}[caption={Le due query PromQL degli indicatori}]
-sum(rate(gateway_requests_total{outcome="success"}[5m]))
-  / sum(rate(gateway_requests_total[5m]))
+sum(increase(gateway_successful_requests_total[30d]))
+  / sum(increase(gateway_requests_total[30d]))
 
-histogram_quantile(0.95,
-  sum by (le) (rate(gateway_request_duration_seconds_bucket[5m])))
+sum(rate(gateway_requests_total[30d]))
 \end{lstlisting}
 
-Anche i bucket di un istogramma sono counter, quindi vanno letti attraverso \texttt{rate()} e non
-nel loro valore assoluto.
+Il gateway \`e replicato, quindi entrambe le query sommano su tutte le istanze: i counter sono per
+processo, e la somma li ricompone in un indicatore di sistema.
 
 \subsection{Verifica degli indicatori}
 
 Gli indicatori sono stati misurati sul deployment Kubernetes, sottoponendo il gateway a un carico
-generato dall'interno del cluster e composto, per ogni ciclo, da due richieste valide e una
-destinata a fallire.
+generato dall'interno del cluster da dodici client concorrenti, ciascuno dei quali ripete un ciclo
+di due richieste valide e una destinata a fallire, per un totale di 8.100 richieste servite.
 
 \begin{table}[H]
 \centering
@@ -460,14 +441,23 @@ destinata a fallire.
 \toprule
 \textbf{Indicatore} & \textbf{Atteso} & \textbf{Misurato} \\
 \midrule
-disponibilit\`a & 0,667, ossia due successi su tre & \textbf{0,6698} \\
-latenza p95 & inferiore a 1~s & \textbf{0,0141~s} \\
+disponibilit\`a & 0,667, ossia due successi su tre & \textbf{0,6667} \\
+throughput & superiore a 40~richieste al secondo & \textbf{138,5~req/s} \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
 La coincidenza fra valore atteso e valore misurato per il primo indicatore \`e la verifica che la
-metrica conteggia ci\`o che dichiara di conteggiare.
+metrica conteggia ci\`o che dichiara di conteggiare. Il secondo \`e il picco sostenuto durante la
+prova, distribuito in modo uniforme sulle tre repliche, che hanno servito rispettivamente 2.733,
+2.708 e 2.659 richieste.
+
+Una prova precedente, condotta con un solo client sequenziale, aveva registrato un picco di appena
+15,4~richieste al secondo. Il limite non era del sistema ma del generatore: un client che attende
+ogni risposta prima di inviare la successiva non pu\`o produrre pi\`u richieste di quante ne
+completi in sequenza. \`E la ragione per cui la verifica di un obiettivo di throughput richiede un
+carico concorrente, e per cui l'indicatore osservato in esercizio riporta il traffico ricevuto e non
+la capacit\`a disponibile.
 
 Il protocollo di misura non \`e arbitrario: il \textbf{modello pull} di Prometheus impone tre
 condizioni, in assenza delle quali l'indicatore restituisce un valore plausibile e falso.
@@ -485,8 +475,8 @@ che \`e cumulativo, e un tasso, che \`e locale alla finestra osservata.
 \paragraph{Il carico va generato dall'interno del cluster.} Il comando
 \texttt{kubectl port-forward} verso un Service non effettua bilanciamento, ma si aggancia a un solo
 pod, per cui le richieste risulterebbero attribuite a un'unica replica. Colpendo il ClusterIP
-dall'interno, il carico si distribuisce: nella misura riportata sopra, in proporzione 50, 37 e 39
-sulle tre repliche.
+dall'interno, il carico si distribuisce su tutte le repliche, come mostrano i conteggi riportati
+sopra.
 
 \subsection{Deployment su Kubernetes}
 
@@ -502,12 +492,12 @@ individuano per nome di Service e il DNS interno di Kubernetes li risolve esatta
 quello di Docker. Il pattern \textbf{Externalized Configuration}, adottato nell'Assignment~2, ha
 quindi reso il passaggio di piattaforma possibile \textbf{senza modificare una riga di codice Java}.
 
-Rispetto all'esempio del laboratorio, che deploya un sistema con soli Deployment e Service, i
-manifest si discostano su cinque punti, di cui tre necessari al funzionamento.
+Un deployment minimale richiederebbe i soli Deployment e Service. I manifest se ne discostano su
+cinque punti, di cui tre necessari al funzionamento.
 
 \begin{table}[H]
 \centering
-\caption{Scostamenti dall'esempio di laboratorio}
+\caption{Scostamenti da un deployment minimale}
 \begin{tabularx}{\textwidth}{lX}
 \toprule
 \textbf{Aggiunta} & \textbf{Motivazione} \\
@@ -515,8 +505,8 @@ manifest si discostano su cinque punti, di cui tre necessari al funzionamento.
 variabili d'ambiente & necessarie: senza, i servizi non si individuano \\
 \texttt{imagePullPolicy} & necessaria: le immagini sono locali, non esiste un registry \\
 broker Kafka & necessario: \`e il middleware richiesto dal punto 1 \\
-liveness e readiness probe & discrezionale, motivata dalle Lab Notes e resa possibile da \texttt{/health} \\
-Prometheus & discrezionale: nessun laboratorio lo deploya su Kubernetes \\
+liveness e readiness probe & discrezionale, resa possibile dall'endpoint \texttt{/health} gi\`a esistente \\
+Prometheus & discrezionale: serve a misurare gli indicatori anche sul cluster \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -704,16 +694,23 @@ perch\'e \`e la scala su cui un service level ha senso, ma il sistema viene avvi
 delle prove e Prometheus non possiede quella storia. Le verifiche usano una finestra di pochi
 minuti: cambia l'ampiezza del campione, non la forma dell'indicatore.
 
-\paragraph{L'obiettivo di latenza \`e ampio rispetto ai valori osservati.} Il p95 misurato \`e di
-circa 14~ms, quindi quasi settanta volte inferiore alla soglia. La soglia \`e stata mantenuta perch\'e
-proviene dal quality attribute dichiarato nell'Assignment~1, ma il margine va riportato: un obiettivo
-largo dichiarato insieme al proprio margine \`e informativo, lo stesso obiettivo presentato da solo
-apparirebbe scelto per non essere mai violato.
+\paragraph{La latenza resta non misurata.} Lo scenario di performance dell'Assignment~1, che chiede
+un tracking sotto il secondo, non \`e coperto dagli obiettivi definiti qui. Il tempo accumulato
+esposto dal gateway consente di calcolarne la media, che in presenza di alta variabilit\`a pu\`o
+nascondere una minoranza di richieste lente, mentre l'indicatore corretto sarebbe un percentile,
+ottenibile solo strumentando le durate per fasce. Il limite dichiarato nell'Assignment~2 resta
+quindi aperto, ed \`e la naturale estensione successiva del lavoro.
+
+\paragraph{Il throughput riporta il carico ricevuto, non la capacit\`a offerta.} L'indicatore
+dipende da quante richieste arrivano: in assenza di traffico risulta basso pur essendo il servizio
+perfettamente sano, e non pu\`o quindi essere interpretato come una violazione dell'obiettivo. La
+capacit\`a si verifica soltanto con un carico generato apposta, come nella prova riportata, mentre
+in esercizio l'indicatore va letto come descrizione della domanda servita.
 
 \paragraph{L'indicatore di disponibilit\`a ha un punto cieco.} Conteggia le richieste \emph{a cui il
 gateway ha risposto}: se il gateway fosse spento, numeratore e denominatore resterebbero entrambi
-fermi e il rapporto resterebbe elevato. \`E la trappola descritta dalle Lab Notes nell'esempio
-Shakespeare. L'indicatore va quindi letto insieme alla metrica \texttt{up}, generata automaticamente
+fermi e il rapporto resterebbe elevato. \`E una trappola nota nella definizione degli indicatori di
+disponibilit\`a. L'indicatore va quindi letto insieme alla metrica \texttt{up}, generata automaticamente
 da Prometheus per ogni target e gi\`a impiegata nel QAS di availability dell'Assignment~2:
 \texttt{up} copre il caso ``non risponde affatto'', lo SLI il caso ``risponde male''.
 
@@ -738,13 +735,16 @@ conosce pi\`u l'esistenza degli altri servizi e si limita a produrre fatti. Il p
 non nascosto, \`e il passaggio a una consistenza \emph{eventual}, che rende normale uno stato
 intermedio che nell'assignment precedente era considerato degradato.
 
-Sul piano operativo, la definizione di service level ha portato a compimento un percorso iniziato
-nell'Assignment~2. L\`a un quality attribute era stato dichiarato non verificabile per insufficienza
-degli strumenti di misura; qui l'istogramma delle durate lo rende osservabile. Il principio che ne
-emerge, gi\`a enunciato allora, trova conferma: \textbf{lo strumento di misura determina quali
-attributi di qualit\`a \`e possibile promettere}. Le tre trappole incontrate nel misurare gli
-indicatori aggiungono un corollario meno ovvio, cio\`e che possedere lo strumento non basta, perch\'e
-un indicatore mal osservato pu\`o restituire un valore rassicurante e falso.
+Sul piano operativo, la definizione di service level ha reso continuo ci\`o che nell'Assignment~2
+era episodico: gli scenari di qualit\`a venivano verificati provocando una condizione, gli obiettivi
+di servizio sono osservati senza interruzione. Il principio enunciato allora trova per\`o nuova
+conferma, e per sottrazione: \textbf{lo strumento di misura determina quali attributi di qualit\`a
+\`e possibile promettere}. I due obiettivi definiti sono esattamente quelli che le metriche
+disponibili permettono di sostenere, e la latenza resta fuori proprio perch\'e richiederebbe una
+strumentazione che il sistema non espone. Le trappole incontrate nel misurare aggiungono un
+corollario meno ovvio: possedere lo strumento non basta, perch\'e un indicatore mal osservato pu\`o
+restituire un valore rassicurante e falso, come ha mostrato la prima prova di throughput condotta
+con un generatore sequenziale.
 
 Il collegamento fra le due direzioni si trova nel deployment. Kubernetes ha reso possibile
 replicare un componente, e l'atto stesso di replicarlo ha fatto emergere due difetti latenti nella
