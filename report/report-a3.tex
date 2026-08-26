@@ -297,6 +297,17 @@ rimaste invariate, e ne \`e stata fornita un'implementazione che pubblica su un 
 effettuare una chiamata HTTP. Nessuna logica di dominio \`e stata toccata, il che \`e il beneficio
 che l'architettura esagonale, adottata nell'Assignment~1, promette proprio per casi come questo.
 
+La figura~\ref{fig:canali} riassume il risultato: gli archi continui sono chiamate REST sincrone,
+quelli tratteggiati canali di eventi. Il delivery-service \`e l'unico servizio che nessuno raggiunge
+pi\`u in modo sincrono.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../doc/canali.png}
+\caption{Canali di eventi e chiamate REST fra i servizi}
+\label{fig:canali}
+\end{figure}
+
 \subsection{Comandi ed eventi}
 \label{sec:dominio}
 
@@ -340,13 +351,11 @@ riformulato per chi lo riceve. L'evento di dominio \texttt{DeliveryScheduled} po
 l'annuncio \texttt{new-delivery-created} porta soltanto punto di ritiro e peso, che sono i due dati
 su cui il drone-service decide se ha un mezzo adatto.
 
-La distinzione \`e deliberata, e ha una motivazione precisa: pubblicare gli eventi di dominio cos\`i
-come sono renderebbe il modello interno un \textbf{contratto pubblico}. Rinominare un value object
-o riorganizzare l'aggregate diventerebbe una modifica concordata con tutti i consumatori, e il
-servizio perderebbe la libert\`a di evolvere che il bounded context gli garantisce. Ne segue anche
-un criterio di progetto diverso per i due: un evento di dominio deve contenere quanto basta a
-\emph{ricostruire lo stato}, un evento di integrazione quanto basta ad \emph{agire senza richiamare
-il mittente}.
+La distinzione \`e deliberata: pubblicare gli eventi di dominio cos\`i come sono renderebbe il
+modello interno un \textbf{contratto pubblico}, e riorganizzare l'aggregate diventerebbe una
+modifica da concordare con tutti i consumatori. I due rispondono del resto a criteri diversi: un
+evento di dominio deve contenere quanto basta a \emph{ricostruire lo stato}, un evento di
+integrazione quanto basta ad \emph{agire senza richiamare il mittente}.
 
 % ============================================================
 \section{Scaling e Service Levels}
@@ -384,11 +393,9 @@ L'obiettivo di throughput si aggancia allo scenario di scalabilit\`a dell'Assign
 che un raddoppio del volume di ordini non produca degrado: dichiarare un livello sostenuto lo
 trasforma da previsione in impegno verificabile.
 
-\paragraph{Error budget.} Un obiettivo del 99,5\% dichiara implicitamente che lo 0,5\% pu\`o
-fallire. Su una finestra di 30~giorni, pari a 43.200~minuti, la quota ammessa \`e di
-\textbf{216~minuti}, circa tre ore e mezza. \`E il meccanismo che rende operativo un obiettivo
-numerico: finch\'e resta margine si pu\`o rilasciare e sperimentare, quando \`e esaurito conviene
-stabilizzare.
+\paragraph{Error budget.} Promettere il 99,5\% significa ammettere che lo 0,5\% pu\`o fallire. In
+30~giorni ci sono 43.200~minuti, quindi quello 0,5\% vale \textbf{216~minuti}: circa tre ore e mezza
+in cui il servizio pu\`o non funzionare senza aver mancato l'obiettivo.
 
 \subsection{Strumentazione}
 
@@ -455,27 +462,24 @@ prova, distribuito in modo uniforme sulle tre repliche, che hanno servito rispet
 Una prova precedente, condotta con un solo client sequenziale, aveva registrato un picco di appena
 15,4~richieste al secondo. Il limite non era del sistema ma del generatore: un client che attende
 ogni risposta prima di inviare la successiva non pu\`o produrre pi\`u richieste di quante ne
-completi in sequenza. \`E la ragione per cui la verifica di un obiettivo di throughput richiede un
-carico concorrente, e per cui l'indicatore osservato in esercizio riporta il traffico ricevuto e non
-la capacit\`a disponibile.
+completi in sequenza.
 
 Il protocollo di misura non \`e arbitrario: il \textbf{modello pull} di Prometheus impone tre
 condizioni, in assenza delle quali l'indicatore restituisce un valore plausibile e falso.
 
-\paragraph{Il carico deve durare pi\`u di un intervallo di scrape.} Se tutte le richieste cadono fra
-due scrape, la serie temporale nasce gi\`a al proprio valore finale e prosegue costante. La funzione
-\texttt{rate()} scarta il primo campione di una serie appena comparsa, non potendo sapere quanto
-valesse in precedenza: osserva un incremento nullo e restituisce zero, anche in presenza di
-fallimenti reali.
+\paragraph{Il carico deve durare pi\`u di un intervallo di scrape.} Prometheus non osserva le
+richieste una per una: passa a intervalli regolari e legge il valore dei contatori. Se tutte le
+richieste arrivano fra un passaggio e il successivo, alla prima lettura il contatore \`e gi\`a al
+valore finale e da l\`i in poi non cresce pi\`u. La funzione \texttt{rate()}, che calcola di quanto
+un contatore \`e cresciuto, non pu\`o usare quella prima lettura, perch\'e non sa da quale valore
+partisse: vede solo la parte costante che segue e risponde zero, anche se nel frattempo erano
+fallite decine di richieste.
 
-\paragraph{L'indicatore va letto mentre il traffico scorre.} A carico concluso la finestra \`e
-interamente piatta e \texttt{rate()} restituisce nuovamente zero. \`E la differenza fra un counter,
-che \`e cumulativo, e un tasso, che \`e locale alla finestra osservata.
-
-\paragraph{Il carico va generato dall'interno del cluster.} Il comando
-\texttt{kubectl port-forward} verso un Service non effettua bilanciamento, ma si aggancia a un solo
-pod, per cui le richieste risulterebbero attribuite a un'unica replica. Colpendo il ClusterIP
-dall'interno, il carico si distribuisce su tutte le repliche, come mostrano i conteggi riportati
+\paragraph{Il carico va generato dall'interno del cluster.} Raggiungere il gateway da fuori con
+\texttt{kubectl port-forward} sembra comodo, ma quel comando sceglie un pod all'inizio e continua a
+usare sempre quello: tutte le richieste finirebbero su una replica sola, e le altre due
+risulterebbero inattive. Inviando invece il carico dall'interno del cluster, all'indirizzo del
+Service, il bilanciamento avviene davvero, come mostrano i conteggi quasi identici riportati
 sopra.
 
 \subsection{Deployment su Kubernetes}
@@ -492,24 +496,11 @@ individuano per nome di Service e il DNS interno di Kubernetes li risolve esatta
 quello di Docker. Il pattern \textbf{Externalized Configuration}, adottato nell'Assignment~2, ha
 quindi reso il passaggio di piattaforma possibile \textbf{senza modificare una riga di codice Java}.
 
-Un deployment minimale richiederebbe i soli Deployment e Service. I manifest se ne discostano su
-cinque punti, di cui tre necessari al funzionamento.
-
-\begin{table}[H]
-\centering
-\caption{Scostamenti da un deployment minimale}
-\begin{tabularx}{\textwidth}{lX}
-\toprule
-\textbf{Aggiunta} & \textbf{Motivazione} \\
-\midrule
-variabili d'ambiente & necessarie: senza, i servizi non si individuano \\
-\texttt{imagePullPolicy} & necessaria: le immagini sono locali, non esiste un registry \\
-broker Kafka & necessario: \`e il middleware richiesto dal punto 1 \\
-liveness e readiness probe & discrezionale, resa possibile dall'endpoint \texttt{/health} gi\`a esistente \\
-Prometheus & discrezionale: serve a misurare gli indicatori anche sul cluster \\
-\bottomrule
-\end{tabularx}
-\end{table}
+Oltre a Deployment e Service, i manifest aggiungono due elementi non strettamente necessari a far
+funzionare il sistema. Il primo sono le \textbf{probe} di liveness e readiness su tutti e quattro i
+servizi, possibili senza scrivere codice perch\'e l'endpoint \texttt{/health} esisteva gi\`a
+dall'Assignment~2. Il secondo \`e \textbf{Prometheus}, deployato nel cluster insieme ai servizi,
+senza il quale gli indicatori sarebbero misurabili solo in esecuzione locale.
 
 La distinzione fra le due probe merita di essere esplicitata, perch\'e agiscono su piani diversi: la
 \emph{liveness} accerta che il processo sia vivo e in caso contrario lo sostituisce, mentre la
@@ -537,48 +528,55 @@ estrarre lo stato del delivery-service, poi di aumentare le partizioni dei suoi 
 Replicare il gateway impone due vincoli che con una sola istanza non si porrebbero, e che hanno
 determinato altrettante scelte di progetto.
 
-\paragraph{Un consumer group per istanza, non per servizio.} Consumatori che condividono un gruppo si
-spartiscono le partizioni, quindi tre repliche sotto il gruppo \texttt{api-gateway} riceverebbero
-ciascuna una parte delle risposte. Non \`e ci\`o che serve: la risposta a un \texttt{requestId}
-appartiene alla replica che ne custodisce l'attesa in memoria, e consegnarla a un'altra la
-condannerebbe al timeout. Il canale di risposta \`e quindi un \textbf{broadcast}, non un carico da
-distribuire, e il gruppo \`e reso univoco per istanza, cos\`i che ogni replica riceva tutte le
-risposte e scarti quelle non proprie. Gli altri tre servizi mantengono il gruppo fisso, che per essi
-\`e corretto perch\'e le loro reazioni sono autosufficienti.
+\paragraph{Un consumer group per istanza, non per servizio.} All'interno di un gruppo ogni
+partizione appartiene a un solo membro, e i canali di risposta ne hanno una soltanto: se le tre
+repliche condividessero il gruppo \texttt{api-gateway}, tutte le risposte verrebbero recapitate a
+una sola di esse e le altre due non ne riceverebbero alcuna. Poich\'e per\`o il Service distribuisce
+le richieste in ingresso su tutte e tre, la replica che attende una risposta coincide con quella che
+la riceve soltanto in un caso su tre: le altre due volte l'attesa si chiuderebbe in timeout.
+
+La risposta a un \texttt{requestId} appartiene infatti alla replica che ne custodisce l'attesa in
+memoria: il canale di risposta \`e un \textbf{broadcast}, non un carico da distribuire. Il gruppo
+\`e quindi reso univoco per istanza, cos\`i che ogni replica riceva tutte le risposte e scarti
+quelle non proprie. Gli altri tre servizi mantengono il gruppo fisso, che per essi \`e corretto
+perch\'e le loro reazioni sono autosufficienti.
 
 \begin{lstlisting}[caption={Un gruppo per istanza, non per servizio}]
 static final String CONSUMER_GROUP = "api-gateway-" + UUID.randomUUID();
 \end{lstlisting}
 
-\paragraph{Un Service headless per lo scrape delle metriche.} Un Service ClusterIP effettua
-bilanciamento, quindi Prometheus interrogherebbe una replica diversa a ogni scrape, producendo una
-singola serie temporale i cui counter oscillerebbero fra tre processi distinti. La soluzione adottata \`e un
-secondo Service \textbf{headless}, privo di indirizzo proprio, il cui nome DNS risolve agli indirizzi
-di tutti i pod, abbinato a \texttt{dns\_sd\_configs} nella configurazione di Prometheus. La verifica
-sul cluster mostra \textbf{sei target attivi, di cui tre distinti per il gateway}, uno per replica.
+\paragraph{Un Service headless per lo scrape delle metriche.} Ogni replica tiene i propri contatori
+in memoria, quindi i tre valori sono diversi fra loro. Un Service ordinario espone per\`o un solo
+indirizzo e a ogni connessione ne sceglie una: Prometheus finirebbe per leggere ora l'una ora
+l'altra, credendo di interrogare sempre la stessa sorgente. Il valore che registrerebbe salirebbe e
+scenderebbe senza motivo apparente, e poich\'e un contatore che diminuisce viene interpretato come un
+riavvio del processo, i tassi calcolati su quella serie sarebbero privi di senso.
 
-Era stata valutata l'alternativa \texttt{kubernetes\_sd\_configs} con \texttt{role: pod}, pi\`u
-generale, ma richiede ServiceAccount, Role e RoleBinding, ossia RBAC, che eccede il perimetro
-introduttivo del materiale del corso.
+Serve quindi che Prometheus veda i tre pod come tre sorgenti distinte. Lo si ottiene con un secondo
+Service dichiarato \textbf{headless}, cio\`e privo di indirizzo proprio: il suo nome non corrisponde
+a un punto d'ingresso unico, ma si risolve nell'elenco degli indirizzi di tutti i pod. Prometheus,
+configurato per ricavare le proprie destinazioni da quella risoluzione, ne ottiene tre e le
+interroga separatamente. La verifica sul cluster mostra \textbf{sei target attivi, di cui tre
+distinti per il gateway}, uno per replica, e le query degli indicatori li ricompongono sommando.
+
+Esiste un'alternativa in cui Prometheus interroga direttamente Kubernetes per farsi elencare i pod,
+pi\`u generale perch\'e non richiede un Service dedicato, ma comporta l'introduzione di tre oggetti
+di controllo degli accessi che il resto del sistema non usa.
 
 \subsection{Self-healing osservato}
 
 Il beneficio pi\`u immediato della piattaforma \`e il control loop che riporta lo stato osservato a
-quello dichiarato. \`E stato osservato in due occasioni.
-
-La prima provocata: eliminando manualmente un pod dell'api-gateway sotto carico, il ReplicaSet ne ha
-creato immediatamente un altro, divenuto pronto in \textbf{45 secondi}, mentre le due repliche
-superstiti continuavano a servire senza interruzione.
-
-La seconda spontanea, e per questo pi\`u significativa. Ricreando il broker, il nuovo pod \`e partito
-mentre il nodo effimero della registrazione precedente era ancora presente in Zookeeper, e Kafka \`e
-terminato con \texttt{NodeExistsException}. Kubernetes lo ha riavviato e al secondo tentativo la
-registrazione \`e riuscita. Un avvio con Docker Compose si sarebbe arrestato in quel punto.
+quello dichiarato. Eliminando manualmente un pod dell'api-gateway mentre il sistema era sotto
+carico, il ReplicaSet ne ha creato immediatamente un altro, divenuto pronto in \textbf{45 secondi},
+mentre le due repliche superstiti continuavano a servire senza interruzione: \`e la
+disponibilit\`a che la replicazione promette, verificata invece che asserita.
 
 Il broker \`e l'unico componente privo di probe, a differenza dei quattro servizi: non espone un
 endpoint HTTP di salute, e i controlli di tipo \texttt{exec} disponibili si sono rivelati inadatti a
-descriverne la disponibilit\`a. I servizi che vi si collegano gestiscono da s\'e la riconnessione,
-come previsto dal client utilizzato, quindi la loro partenza non dipende dall'ordine di avvio.
+descriverne la disponibilit\`a. La sua indisponibilit\`a temporanea non blocca per\`o il sistema,
+perch\'e i servizi che vi si collegano gestiscono da s\'e la riconnessione: la loro partenza non
+dipende dall'ordine di avvio, come si \`e osservato durante le prove, quando un riavvio del broker
+non ha richiesto di riavviare nulla d'altro.
 
 A verifica conclusa, i pod applicativi hanno mantenuto lo stato pronto per \textbf{18~ore
 consecutive senza alcun riavvio}.
@@ -599,9 +597,6 @@ eventually has a drone assigned}.
 dal middleware, tramite \texttt{Assumptions.abort()}, quando il broker non \`e raggiungibile: un test
 che non pu\`o essere eseguito deve dichiararsi saltato e non fallito, altrimenti l'esito perde
 significato.
-
-Va segnalato che i test non sono un requisito del presente assignment; il loro adattamento \`e stato
-comunque svolto per non lasciare in eredit\`a una suite non rappresentativa.
 
 % ============================================================
 \section{Limiti noti}
@@ -635,122 +630,49 @@ identicamente nella versione sincrona dell'Assignment~2. Rendere il servizio rep
 nell'ordine, uno store condiviso, un numero di partizioni maggiore di uno, e solo allora l'aumento
 delle repliche.
 
-\paragraph{La persistenza su file \`e stata valutata e rinviata.} Il passaggio da event store in
-memoria a event store su file \`e l'evoluzione pi\`u immediata, ed \`e stato quantificato: circa 80
-righe per un convertitore degli eventi e circa 60 per il nuovo adapter, oltre al montaggio di un
-volume persistente nel manifest. Il dominio non verrebbe toccato, perch\'e l'event store \`e gi\`a
-definito dietro una porta.
+\paragraph{Salvare gli eventi su file non basterebbe.} \`E l'evoluzione pi\`u immediata e
+richiederebbe di sostituire un solo adapter, senza toccare il dominio, ma darebbe
+\textbf{durabilit\`a e non replicabilit\`a}: due processi che scrivono lo stesso file non hanno modo
+di coordinarsi, e il controllo di concorrenza oggi garantito all'interno di una sola macchina
+virtuale verrebbe meno. Servirebbe uno store realmente condiviso, come un database, che imponga
+esso stesso il controllo di versione. Su Kubernetes, inoltre, il file va montato su un volume
+persistente, altrimenti sparisce a ogni riavvio del pod.
 
-Due avvertenze emerse dall'analisi meritano di essere riportate, perch\'e non sono evidenti.
+\paragraph{Uno stesso evento pu\`o essere elaborato due volte.} Elaborare un evento e registrare di
+averlo fatto sono due operazioni distinte, e il segnalibro del consumatore avanza a intervalli
+anzich\'e dopo ogni messaggio: un processo che termini fra le due riprende dall'evento che aveva
+gi\`a elaborato. \`E la garanzia \emph{at-least-once}, e Kafka la preferisce all'alternativa, che
+sarebbe perdere l'evento anzich\'e ripeterlo.
 
-La prima \`e che il serializzatore gi\`a presente \textbf{non \`e riutilizzabile}. Quello impiegato per
-pubblicare gli eventi sul canale \`e deliberatamente parziale: dell'evento di creazione trasmette
-ordine, peso e data, ma non la rotta, che a un consumatore non serve. La persistenza richiede invece
-una traduzione \textbf{senza perdite}, perch\'e da essa si deve poter ricostruire l'aggregate identico.
-Notifica e persistenza hanno esigenze diverse e non condividono lo schema.
-
-La seconda \`e che su Kubernetes il file, da solo, non produce alcun effetto: il filesystem di un
-container \`e effimero, quindi senza un volume persistente lo storico sparisce comunque a ogni
-riavvio del pod.
-
-Va infine chiarito che questa evoluzione darebbe \textbf{durabilit\`a, non replicabilit\`a}. Il controllo
-di concorrenza ottimistica \`e oggi garantito dall'atomicit\`a di un'operazione su mappa, valida
-entro una singola JVM; due processi che scrivano lo stesso file non condividono alcun lock. Per la
-replicazione servirebbe uno store realmente condiviso, in cui il controllo di versione sia imposto
-da un vincolo del database.
-
-\paragraph{Kafka non \`e l'event store.} Era stata considerata l'ipotesi di utilizzare Kafka anche
-come event store del delivery-service, il che avrebbe fatto coincidere i due punti della consegna.
-\`E stata scartata per contenere il rischio, ma resta una direzione coerente, tanto pi\`u che
-risolverebbe insieme durabilit\`a e condivisione dello stato fra repliche.
-
-\paragraph{Il completamento di una consegna non \`e esposto.} Il dominio della consegna modella
-l'intero ciclo di vita, transito e completamento inclusi, con i relativi eventi, ed \`e cos\`i che
-lo esercitano i test di unit\`a. Nessun adapter per\`o espone quelle due operazioni: in
-Assignment~2 erano endpoint REST raggiungibili solo interrogando il servizio direttamente, mai
-passati dal gateway, e i canali che le trasponevano sono stati rimossi in quanto privi di
-chiamante. Ne consegue che una consegna si ferma allo stato \texttt{DRONE\_ASSIGNED} e il canale
-\texttt{delivery-completed} non esiste: la chiusura dell'ordine e il rilascio del drone restano
-possibili sulle API REST che i due servizi hanno mantenuto. Riattivare il percorso
-significherebbe esporre le due operazioni sul gateway e ripristinare la terna corrispondente.
-
-\paragraph{La readiness probe non riflette la reale disponibilit\`a del servizio.} L'endpoint
-\texttt{/health} risponde \texttt{UP} in modo incondizionato, con l'elenco dei controlli vuoto, ed
-\`e eredit\`a dell'Assignment~2, quando ogni operazione passava da HTTP e l'affermazione era
-veritiera. Dopo il passaggio ai canali non lo \`e pi\`u: il deploy del controller a eventi \`e
-asincrono e nessuno ne attende il completamento, quindi un pod pu\`o risultare pronto mentre il suo
-consumer group sta ancora completando il rebalance. Il fenomeno \`e stato osservato dopo un riavvio
-del delivery-service, con circa 15~secondi di richieste fallite a fronte di un pod dichiarato pronto
-dalla piattaforma. Popolare i controlli con lo stato della sottoscrizione ai canali renderebbe la
-probe veritiera.
-
-\paragraph{La consegna degli eventi \`e at-least-once.} I consumatori usano il commit automatico
-dell'offset, quindi un processo che elabori un evento e termini prima del salvataggio del segnalibro
-lo rielaborerebbe alla ripartenza. Gli handler non sono stati progettati per essere idempotenti, il
-che \`e accettabile in un prototipo ma andrebbe affrontato in un sistema reale.
+Gli handler dovrebbero quindi essere \textbf{idempotenti}, cio\`e produrre lo stesso risultato se
+eseguiti una o pi\`u volte, e i nostri non lo sono: rileggere \texttt{order-confirmed} creerebbe una
+seconda consegna per lo stesso ordine, e impegnerebbe un secondo drone. Sarebbe sufficiente
+verificare l'esistenza di una consegna per quell'ordine prima di crearne una, interrogazione a cui
+il read model sa gi\`a rispondere.
 
 \paragraph{La finestra di 30 giorni non \`e osservabile.} Gli obiettivi sono enunciati su 30~giorni
 perch\'e \`e la scala su cui un service level ha senso, ma il sistema viene avviato per la durata
 delle prove e Prometheus non possiede quella storia. Le verifiche usano una finestra di pochi
 minuti: cambia l'ampiezza del campione, non la forma dell'indicatore.
 
-\paragraph{La latenza resta non misurata.} Lo scenario di performance dell'Assignment~1, che chiede
-un tracking sotto il secondo, non \`e coperto dagli obiettivi definiti qui. Il tempo accumulato
-esposto dal gateway consente di calcolarne la media, che in presenza di alta variabilit\`a pu\`o
-nascondere una minoranza di richieste lente, mentre l'indicatore corretto sarebbe un percentile,
-ottenibile solo strumentando le durate per fasce. Il limite dichiarato nell'Assignment~2 resta
-quindi aperto, ed \`e la naturale estensione successiva del lavoro.
-
-\paragraph{Il throughput riporta il carico ricevuto, non la capacit\`a offerta.} L'indicatore
-dipende da quante richieste arrivano: in assenza di traffico risulta basso pur essendo il servizio
-perfettamente sano, e non pu\`o quindi essere interpretato come una violazione dell'obiettivo. La
-capacit\`a si verifica soltanto con un carico generato apposta, come nella prova riportata, mentre
-in esercizio l'indicatore va letto come descrizione della domanda servita.
-
-\paragraph{L'indicatore di disponibilit\`a ha un punto cieco.} Conteggia le richieste \emph{a cui il
-gateway ha risposto}: se il gateway fosse spento, numeratore e denominatore resterebbero entrambi
-fermi e il rapporto resterebbe elevato. \`E una trappola nota nella definizione degli indicatori di
-disponibilit\`a. L'indicatore va quindi letto insieme alla metrica \texttt{up}, generata automaticamente
-da Prometheus per ogni target e gi\`a impiegata nel QAS di availability dell'Assignment~2:
-\texttt{up} copre il caso ``non risponde affatto'', lo SLI il caso ``risponde male''.
-
-\paragraph{I canali non sono documentati formalmente.} Le API REST dei servizi sono descritte da
-specifiche OpenAPI, mentre i canali di eventi sono documentati solo dal codice e da questo report.
-Una descrizione in AsyncAPI renderebbe il contratto verificabile e sarebbe il corrispettivo naturale
-di quanto gi\`a fatto per il lato sincrono.
-
-\paragraph{Il terzo punto della consegna non \`e stato affrontato.} La riprogettazione ad agenti del
-software di controllo del drone, di natura opzionale, non rientra nel lavoro svolto.
-
 % ============================================================
 \section{Conclusioni}
 
-L'assignment ha modificato il sistema lungo due direzioni indipendenti, che si sono per\`o rivelate
-collegate.
+Sul piano della comunicazione, l'architettura a eventi ha sostituito l'\textbf{orchestrazione} con
+la \textbf{coreografia}. Il risultato pi\`u sintetico \`e la firma del costruttore
+dell'application service, passata da tre dipendenze a una: il delivery-service non conosce pi\`u
+l'esistenza degli altri servizi e si limita a produrre fatti. Il prezzo \`e una consistenza
+\emph{eventual}, che rende normale uno stato intermedio prima considerato degradato.
 
-Sul piano della comunicazione, l'adozione dell'architettura a eventi ha sostituito
-l'\textbf{orchestrazione} con la \textbf{coreografia}. Il risultato pi\`u sintetico \`e la firma del
-costruttore dell'application service, passata da tre dipendenze a una: il delivery-service non
-conosce pi\`u l'esistenza degli altri servizi e si limita a produrre fatti. Il prezzo, dichiarato e
-non nascosto, \`e il passaggio a una consistenza \emph{eventual}, che rende normale uno stato
-intermedio che nell'assignment precedente era considerato degradato.
+Sul piano operativo, i service level hanno reso continua una verifica che prima avveniva una volta
+sola: gli scenari di qualit\`a si controllavano provocando una condizione, gli obiettivi si
+osservano invece senza interruzione. Resta valido il principio enunciato nell'Assignment~2, \textbf{lo strumento di misura determina
+quali attributi di qualit\`a \`e possibile promettere}: la latenza continua a non essere osservabile,
+e finch\'e non lo sar\`a nessun obiettivo potr\`a essere formulato su di essa.
 
-Sul piano operativo, la definizione di service level ha reso continuo ci\`o che nell'Assignment~2
-era episodico: gli scenari di qualit\`a venivano verificati provocando una condizione, gli obiettivi
-di servizio sono osservati senza interruzione. Il principio enunciato allora trova per\`o nuova
-conferma, e per sottrazione: \textbf{lo strumento di misura determina quali attributi di qualit\`a
-\`e possibile promettere}. I due obiettivi definiti sono esattamente quelli che le metriche
-disponibili permettono di sostenere, e la latenza resta fuori proprio perch\'e richiederebbe una
-strumentazione che il sistema non espone. Le trappole incontrate nel misurare aggiungono un
-corollario meno ovvio: possedere lo strumento non basta, perch\'e un indicatore mal osservato pu\`o
-restituire un valore rassicurante e falso, come ha mostrato la prima prova di throughput condotta
-con un generatore sequenziale.
-
-Il collegamento fra le due direzioni si trova nel deployment. Kubernetes ha reso possibile
-replicare un componente, e l'atto stesso di replicarlo ha fatto emergere due difetti latenti nella
-soluzione a eventi, il consumer group condiviso e lo scrape attraverso un servizio bilanciato,
-entrambi invisibili con una sola istanza. \`E l'osservazione pi\`u utile dell'intero lavoro: una
-scelta di deployment non \`e neutrale rispetto all'architettura applicativa, ma ne verifica
-le assunzioni.
+Le due direzioni si incontrano nel deployment. Replicare un componente ha fatto emergere due difetti
+che con una sola istanza non si sarebbero mai visti, il consumer group condiviso e lo scrape
+attraverso un servizio bilanciato: una scelta di deployment non \`e neutrale rispetto
+all'architettura applicativa, ma ne verifica le assunzioni.
 
 \end{document}
