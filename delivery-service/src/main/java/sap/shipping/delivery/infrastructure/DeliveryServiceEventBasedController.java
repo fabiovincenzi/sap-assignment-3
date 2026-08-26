@@ -39,8 +39,6 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     /* a report, not a request: the drone states where it is and expects no answer */
     static final String DRONE_POSITION_REPORTS_EVC = "drone-position-reports";
 
-    static final String NEW_DELIVERY_CREATED_EVC = "new-delivery-created";
-
     /* the fleet answers an announced delivery on one of these two */
     static final String DRONE_ASSIGNED_EVC = "drone-assigned";
     static final String DRONE_UNAVAILABLE_EVC = "drone-unavailable";
@@ -52,16 +50,13 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     private final String consumerGroup;
 
     private InputEventChannel orderConfirmed;
-    private OutputEventChannel newDeliveryCreated;
-
     private InputEventChannel getDeliveryRequests;
+    private InputEventChannel dronePositionReports;
+    private InputEventChannel droneUnavailable;
+    private InputEventChannel droneAssigned;
+    
     private OutputEventChannel getDeliveryRequestsApproved;
     private OutputEventChannel getDeliveryRequestsRejected;
-
-    private InputEventChannel dronePositionReports;
-
-    private InputEventChannel droneAssigned;
-    private InputEventChannel droneUnavailable;
 
     public DeliveryServiceEventBasedController(DeliveryService deliveryService, String evChannelsLocation) {
         this(deliveryService, evChannelsLocation, CONSUMER_GROUP);
@@ -80,17 +75,18 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     public void start() {
         logger.log(Level.INFO, "Delivery Service event channels initializing...");
 
+        // consumer
         orderConfirmed = input(ORDER_CONFIRMED_EVC);
-        newDeliveryCreated = output(NEW_DELIVERY_CREATED_EVC);
-
         getDeliveryRequests = input(GET_DELIVERY_REQUESTS_EVC);
+        dronePositionReports = input(DRONE_POSITION_REPORTS_EVC);
+        droneAssigned = input(DRONE_ASSIGNED_EVC);
+        droneUnavailable = input(DRONE_UNAVAILABLE_EVC);
+
+        // consumer
         getDeliveryRequestsApproved = output(GET_DELIVERY_REQUESTS_APPROVED_EVC);
         getDeliveryRequestsRejected = output(GET_DELIVERY_REQUESTS_REJECTED_EVC);
 
-        dronePositionReports = input(DRONE_POSITION_REPORTS_EVC);
 
-        droneAssigned = input(DRONE_ASSIGNED_EVC);
-        droneUnavailable = input(DRONE_UNAVAILABLE_EVC);
 
         Future.all(List.of(
                 orderConfirmed.init(this::scheduleDelivery),
@@ -113,20 +109,21 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     /**
      * Reacts to a confirmed order by scheduling its delivery. Nobody is waiting for an outcome,
      * so a rejection has no channel to travel on and is only recorded.
+     *
+     * The new delivery is not announced here: it is a fact the domain owns entirely, so the
+     * observer registered on the service publishes it, whatever path led to the scheduling.
      */
     private void scheduleDelivery(JsonObject fact) {
         var orderId = fact.getString("orderId");
         logger.log(Level.INFO, "OrderConfirmed - scheduling the delivery of order " + orderId);
         try {
-            var delivery = deliveryService.scheduleDelivery(
+            deliveryService.scheduleDelivery(
                 required(fact, "orderId"),
                 requiredDouble(fact, "pickupLat"),
                 requiredDouble(fact, "pickupLng"),
                 requiredDouble(fact, "deliveryLat"),
                 requiredDouble(fact, "deliveryLng"),
                 requiredDouble(fact, "weightKg"));
-
-            announce(delivery);
         } catch (Exception e) {
             logger.log(Level.WARNING, "OrderConfirmed discarded for order " + orderId + " - " + e.getMessage());
         }
@@ -211,20 +208,6 @@ public class DeliveryServiceEventBasedController extends AbstractVerticle {
     private void reject(OutputEventChannel channel, String requestId, String reason) {
         logger.log(Level.WARNING, "Request " + requestId + " rejected - " + reason);
         channel.postEvent(requestId, new JsonObject().put("requestId", requestId).put("error", reason));
-    }
-
-    /**
-     * Announces the delivery to whoever is subscribed. The payload carries weight and pickup
-     * point, which the replies do not: a consumer must be able to act without asking back.
-     */
-    private void announce(Delivery delivery) {
-        var fact = new JsonObject()
-            .put("deliveryId", delivery.getId().value())
-            .put("orderId", delivery.orderId())
-            .put("pickupLat", delivery.route().pickupLat())
-            .put("pickupLng", delivery.route().pickupLng())
-            .put("weightKg", delivery.weightKg());
-        newDeliveryCreated.postEvent(delivery.getId().value(), fact);
     }
 
     private JsonObject deliveryToJson(Delivery d) {

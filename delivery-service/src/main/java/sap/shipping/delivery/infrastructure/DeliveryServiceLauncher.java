@@ -54,6 +54,9 @@ public class DeliveryServiceLauncher extends AbstractVerticle {
     }
 
     private void startEventChannels(DeliveryService service) {
+        /* the facts the domain owns are announced by the observer, the replies that carry a
+           requestId by the controller that received the request */
+        service.addObserver(new KafkaDeliveryServiceObserver(vertx, EV_CHANNELS_LOCATION));
         vertx.deployVerticle(new DeliveryServiceEventBasedController(service, EV_CHANNELS_LOCATION));
     }
 

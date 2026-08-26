@@ -14,6 +14,7 @@ import sap.shipping.delivery.infrastructure.EventSourcedDeliveryRepository;
 import sap.shipping.delivery.infrastructure.InMemoryDeliveryEventStore;
 import sap.shipping.delivery.infrastructure.InMemoryDeliveryLookupView;
 import sap.shipping.delivery.infrastructure.InMemoryDeliverySnapshotStore;
+import sap.shipping.delivery.infrastructure.KafkaDeliveryServiceObserver;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -57,6 +58,7 @@ public class DeliverySteps {
         var repository = new EventSourcedDeliveryRepository(new InMemoryDeliveryEventStore(),
             new InMemoryDeliverySnapshotStore(), new InMemoryDeliveryLookupView());
         var service = new DeliveryServiceImpl(repository);
+        service.addObserver(new KafkaDeliveryServiceObserver(vertx, broker));
 
         vertx.deployVerticle(new DeliveryServiceEventBasedController(service, broker,
                 "component-test-" + UUID.randomUUID()))

@@ -5,6 +5,8 @@ import io.prometheus.metrics.exporter.httpserver.HTTPServer;
 import io.prometheus.metrics.instrumentation.jvm.JvmMetrics;
 import sap.shipping.common.exagonal.Adapter;
 import sap.shipping.delivery.application.DeliveryServiceObserver;
+import sap.shipping.delivery.domain.events.DeliveryCompleted;
+import sap.shipping.delivery.domain.events.DeliveryScheduled;
 
 @Adapter
 public class PrometheusDeliveryServiceObserver implements DeliveryServiceObserver {
@@ -30,12 +32,12 @@ public class PrometheusDeliveryServiceObserver implements DeliveryServiceObserve
     }
 
     @Override
-    public void notifyDeliveryScheduled(String deliveryId) {
+    public void notifyDeliveryScheduled(DeliveryScheduled event) {
         deliveriesInProgress.inc();
     }
 
     @Override
-    public void notifyDeliveryCompleted(String deliveryId) {
+    public void notifyDeliveryCompleted(DeliveryCompleted event) {
         deliveriesInProgress.dec();
     }
 }

@@ -2,6 +2,7 @@ package sap.shipping.delivery.application;
 
 import sap.shipping.delivery.domain.*;
 import sap.shipping.delivery.domain.events.DeliveryCompleted;
+import sap.shipping.delivery.domain.events.DeliveryScheduled;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -29,11 +30,16 @@ public class DeliveryServiceImpl implements DeliveryService {
                                       double deliveryLat, double deliveryLng, double weightKg) {
         var route = new Route(pickupLat, pickupLng, deliveryLat, deliveryLng);
         var delivery = new Delivery(DeliveryId.generate(), orderId, route, weightKg);
+        /* read the events before saving: the repository hands them to the event store and clears them */
+        var events = List.copyOf(delivery.pendingEvents());
         repository.save(delivery);
         logger.log(Level.INFO, "schedule delivery " + delivery.getId().value() + " for order " + orderId);
-        observers.forEach(o -> o.notifyDeliveryScheduled(delivery.getId().value()));
-        /* the drone is not requested here: saving announces the delivery, and whoever owns the
-           fleet answers with a drone of its own accord */
+        /* the drone is not requested here: the observers announce the delivery, and whoever owns
+           the fleet answers with a drone of its own accord */
+        events.stream()
+            .filter(e -> e instanceof DeliveryScheduled)
+            .map(e -> (DeliveryScheduled) e)
+            .forEach(e -> observers.forEach(o -> o.notifyDeliveryScheduled(e)));
         return delivery;
     }
 
@@ -75,11 +81,16 @@ public class DeliveryServiceImpl implements DeliveryService {
         var delivery = repository.findById(deliveryId)
             .orElseThrow(() -> new IllegalArgumentException("Delivery not found: " + deliveryId));
         delivery.complete();
+        /* read the events before saving: the repository hands them to the event store and clears them */
+        var events = List.copyOf(delivery.pendingEvents());
         repository.save(delivery);
         logger.log(Level.INFO, "complete delivery " + deliveryId.value());
-        observers.forEach(o -> o.notifyDeliveryCompleted(deliveryId.value()));
-        /* neither the order nor the fleet is called: saving announces the completion, and each
-           of them decides what to do with it */
+        /* the completion reaches the observers, but no service listens to it in this assignment:
+           the flow the gateway exposes stops at DRONE_ASSIGNED, so only the metrics react */
+        events.stream()
+            .filter(e -> e instanceof DeliveryCompleted)
+            .map(e -> (DeliveryCompleted) e)
+            .forEach(e -> observers.forEach(o -> o.notifyDeliveryCompleted(e)));
         return delivery;
     }
 
