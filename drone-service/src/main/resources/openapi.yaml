@@ -181,4 +181,4 @@ components:
           type: number
         status:
           type: string
-          enum: [AVAILABLE, IN_FLIGHT, CHARGING, MAINTENANCE]
+          enum: [AVAILABLE, IN_FLIGHT]

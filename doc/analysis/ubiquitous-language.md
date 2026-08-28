@@ -8,8 +8,8 @@
 | **Pickup Location** | Luogo di ritiro (indirizzo + coordinate GPS) |
 | **Delivery Location** | Luogo di consegna (indirizzo + coordinate GPS) |
 | **Delivery Window** | Finestra temporale: immediata o programmata |
-| **Drone** | Veicolo aereo autonomo con capacita di carico e autonomia limitata |
-| **Drone Status** | AVAILABLE, IN_FLIGHT, CHARGING, MAINTENANCE |
+| **Drone** | Veicolo aereo autonomo, con un peso massimo trasportabile |
+| **Drone Status** | AVAILABLE, IN_FLIGHT |
 | **Delivery** | Trasporto di un pacco dal pickup al delivery location tramite drone |
 | **Delivery Status** | SCHEDULED, DRONE_ASSIGNED, IN_TRANSIT, DELIVERED, FAILED |
 | **Route** | Percorso calcolato dal pickup al delivery location |

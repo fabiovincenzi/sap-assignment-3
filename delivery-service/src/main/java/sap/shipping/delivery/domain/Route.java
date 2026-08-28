@@ -5,6 +5,8 @@ import java.util.Objects;
 
 public class Route implements ValueObject {
 
+    private static final int EARTH_RADIUS_KM = 6371;
+
     private final double pickupLat;
     private final double pickupLng;
     private final double deliveryLat;
@@ -25,17 +27,16 @@ public class Route implements ValueObject {
     public double deliveryLng() { return deliveryLng; }
     public double distanceKm() { return distanceKm; }
 
+    // 2 min for 1 km
     public long estimatedMinutes() {
         return Math.max(1, Math.round(distanceKm / 0.5));
     }
 
+    // Straight-line distance in km.
     private static double calculateDistance(double lat1, double lng1, double lat2, double lng2) {
-        double dlat = Math.toRadians(lat2 - lat1);
-        double dlng = Math.toRadians(lng2 - lng1);
-        double a = Math.sin(dlat / 2) * Math.sin(dlat / 2)
-            + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-            * Math.sin(dlng / 2) * Math.sin(dlng / 2);
-        return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        double x = Math.toRadians(lng2 - lng1) * Math.cos(Math.toRadians((lat1 + lat2) / 2));
+        double y = Math.toRadians(lat2 - lat1);
+        return EARTH_RADIUS_KM * Math.sqrt(x * x + y * y);
     }
 
     @Override

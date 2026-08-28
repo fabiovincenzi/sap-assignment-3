@@ -47,7 +47,7 @@ Gestito internamente come modulo semplificato. Non giustifica un servizio separa
 |----------|------|
 | Drone | Aggregate Root |
 | Location | Value Object (lat, lng) |
-| DroneStatus | Value Object (AVAILABLE, IN_FLIGHT, CHARGING, MAINTENANCE) |
+| DroneStatus | Value Object (AVAILABLE, IN_FLIGHT) |
 
 - **Commands**: registerDrone, updateLocation, releaseDrone
 - **Queries**: findAvailableDrone, getDrone
