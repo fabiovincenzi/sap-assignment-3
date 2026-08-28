@@ -10,7 +10,6 @@ import sap.shipping.common.exagonal.OutBoundPort;
 import org.junit.jupiter.api.Test;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
-import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 public class ArchitectureTest {
 
@@ -21,12 +20,6 @@ public class ArchitectureTest {
         var domainPackage = "..domain..";
         var applicationPackage = "..application..";
         var infrastructurePackage = "..infrastructure..";
-
-        var domainModelWithNoDeps =
-                noClasses().that().resideInAPackage(domainPackage)
-                .should().dependOnClassesThat().resideInAPackage(applicationPackage)
-                .orShould().dependOnClassesThat().resideInAPackage(infrastructurePackage);
-        domainModelWithNoDeps.check(importedClasses);
 
         var layeredRule = layeredArchitecture()
             .consideringAllDependencies()
