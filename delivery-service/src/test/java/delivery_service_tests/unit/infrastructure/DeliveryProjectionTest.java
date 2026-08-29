@@ -1,4 +1,4 @@
-package delivery_service_tests.infrastructure;
+package delivery_service_tests.unit.infrastructure;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

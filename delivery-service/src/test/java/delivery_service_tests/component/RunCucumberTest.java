@@ -1,4 +1,4 @@
-package delivery_service_tests.component_tests;
+package delivery_service_tests.component;
 
 import org.junit.platform.suite.api.ConfigurationParameter;
 import org.junit.platform.suite.api.IncludeEngines;
@@ -10,7 +10,7 @@ import static io.cucumber.junit.platform.engine.Constants.PLUGIN_PROPERTY_NAME;
 
 @Suite
 @IncludeEngines("cucumber")
-@SelectPackages("delivery_service_tests.component_tests")
+@SelectPackages("delivery_service_tests.component")
 @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty")
-@ConfigurationParameter(key = GLUE_PROPERTY_NAME, value = "delivery_service_tests.component_tests")
+@ConfigurationParameter(key = GLUE_PROPERTY_NAME, value = "delivery_service_tests.component")
 public class RunCucumberTest {}

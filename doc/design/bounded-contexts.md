@@ -57,6 +57,6 @@ Gestito internamente come modulo semplificato. Non giustifica un servizio separa
 ## God Classes evitate
 
 Lo stesso concetto ha rappresentazioni diverse nei diversi BC:
-- **Order Context**: conosce customer, package, prezzo, stato ordine — non sa nulla del drone o del percorso
-- **Delivery Context**: conosce pickup, delivery, drone assegnato (solo ID), route, ETA — non sa nulla del customer o del prezzo
-- **Drone Context**: conosce posizione, stato, capacita — non sa nulla di ordini o delivery
+- **Order Context**: conosce customer, package, prezzo, stato ordine. Non sa nulla del drone o del percorso
+- **Delivery Context**: conosce pickup, delivery, drone assegnato (solo ID), route, ETA. Non sa nulla del customer o del prezzo
+- **Drone Context**: conosce posizione, stato, capacita. Non sa nulla di ordini o delivery

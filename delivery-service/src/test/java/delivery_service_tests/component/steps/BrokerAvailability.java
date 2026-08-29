@@ -1,4 +1,4 @@
-package delivery_service_tests.component_tests.steps;
+package delivery_service_tests.component.steps;
 
 import org.junit.jupiter.api.Assumptions;
 

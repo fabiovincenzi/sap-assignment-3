@@ -1,4 +1,4 @@
-package delivery_service_tests.infrastructure;
+package delivery_service_tests.unit.infrastructure;
 
 /** Lets a test wait for the asynchronous start of the Vert.x server (same helper as Lab 9). */
 public class Synchroniser {

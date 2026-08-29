@@ -1,4 +1,4 @@
-package drone_service_tests.steps;
+package drone_service_tests.component.steps;
 
 import io.cucumber.java.en.*;
 import sap.shipping.drone.application.DroneService;

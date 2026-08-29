@@ -1,4 +1,4 @@
-package delivery_service_tests.infrastructure;
+package delivery_service_tests.unit.infrastructure;
 
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;

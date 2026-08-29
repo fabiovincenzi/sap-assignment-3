@@ -1,4 +1,4 @@
-package order_service_tests.steps;
+package order_service_tests.component.steps;
 
 import io.cucumber.java.en.*;
 import sap.shipping.order.application.OrderService;

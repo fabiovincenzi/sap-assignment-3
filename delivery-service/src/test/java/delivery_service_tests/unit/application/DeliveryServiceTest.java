@@ -1,4 +1,4 @@
-package delivery_service_tests.application;
+package delivery_service_tests.unit.application;
 
 import org.junit.jupiter.api.Test;
 import sap.shipping.delivery.application.*;
